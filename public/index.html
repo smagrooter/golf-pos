@@ -205,6 +205,9 @@ tr.unpaid-row{background:#FFF0F0}
     <div class="sub">Pro Shop Management System &nbsp;·&nbsp; <span id="today-date"></span></div>
   </div>
   <div style="margin-left:auto;display:flex;align-items:center;gap:9px">
+    <span id="db-status" title="Database connection status" style="font-size:11px;padding:2px 7px;border-radius:6px;background:#f0f0e8;cursor:default">⏳ DB</span>
+    <button class="btn btn-sm" onclick="exportData()" title="Download backup of all data">⬇ Backup</button>
+    <button class="btn btn-sm" onclick="importData()" title="Restore from backup file">⬆ Restore</button>
     <span id="hdr-user" class="badge b-teal"></span>
     <button class="btn bg-red btn-sm" onclick="doLogout()">Sign out</button>
   </div>
@@ -2744,37 +2747,202 @@ function initApp(){
 }
 
 // ============================================================
-// PERSISTENCE — localStorage
+// PERSISTENCE — PostgreSQL via API (auto-saves on every change)
+// Falls back to localStorage if running offline/locally
 // ============================================================
 var STORE_KEY = 'eagleridge_pos_v6';
-function saveState(){
+var _saveTimer = null;
+var _dbAvailable = null; // null=unknown, true=yes, false=no
+
+// Check if the server API is available
+async function _checkDB(){
+  if(_dbAvailable !== null) return _dbAvailable;
   try{
-    localStorage.setItem(STORE_KEY, JSON.stringify({
-      sales:sales,members:members,products:products,bookings:bookings,
-      giftCerts:giftCerts,discounts:discounts,memTypes:memTypes,
-      addonTypes:addonTypes,courseFees:courseFees,tournaments:tournaments,
-      CFG:CFG,nextMid:nextMid,nextPid:nextPid,nextTid:nextTid,nextCfId:nextCfId,
-      users:users.filter(function(u){return u.role!=='admin';}),savedAt:Date.now()
-    }));
-  }catch(e){console.warn('Save failed',e);}
+    var r = await fetch('/api/health', {signal: AbortSignal.timeout(3000)});
+    _dbAvailable = r.ok;
+  }catch(e){ _dbAvailable = false; }
+  return _dbAvailable;
 }
-function loadState(){
+
+// Build the full state object
+function _buildState(){
+  return {
+    sales:sales, members:members, products:products, bookings:bookings,
+    giftCerts:giftCerts, discounts:discounts, memTypes:memTypes,
+    addonTypes:addonTypes, courseFees:courseFees, tournaments:tournaments,
+    CFG:CFG, nextMid:nextMid, nextPid:nextPid, nextTid:nextTid, nextCfId:nextCfId,
+    users:users.filter(function(u){return u.role!=='admin';}),
+    savedAt:Date.now()
+  };
+}
+
+// Apply a loaded state object to all variables
+function _applyState(s){
+  if(s.sales)sales=s.sales;
+  if(s.members)members=s.members;
+  if(s.products)products=s.products;
+  if(s.bookings)bookings=s.bookings;
+  if(s.giftCerts)giftCerts=s.giftCerts;
+  if(s.discounts)discounts=s.discounts;
+  if(s.memTypes)memTypes=s.memTypes;
+  if(s.addonTypes)addonTypes=s.addonTypes;
+  if(s.courseFees)courseFees=s.courseFees;
+  if(s.tournaments)tournaments=s.tournaments;
+  if(s.CFG)Object.assign(CFG,s.CFG);
+  if(s.nextMid)nextMid=s.nextMid;
+  if(s.nextPid)nextPid=s.nextPid;
+  if(s.nextTid)nextTid=s.nextTid;
+  if(s.nextCfId)nextCfId=s.nextCfId;
+  if(s.users)s.users.forEach(function(u){
+    if(!users.find(function(x){return x.username===u.username;}))users.push(u);
+  });
+}
+
+// Save state — always writes to localStorage immediately,
+// then debounces a DB save 800ms later so rapid changes don't spam the DB
+function saveState(){
+  var state = _buildState();
+  // Always save to localStorage as fast local cache
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+  // Debounce DB save
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async function(){
+    var hasDB = await _checkDB();
+    if(!hasDB) return;
+    try{
+      await fetch('/api/data/pos_main', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({value: state})
+      });
+    }catch(e){ console.warn('DB save failed, localStorage still has it:', e.message); }
+  }, 800);
+}
+
+// Load state — tries DB first, falls back to localStorage
+async function loadStateAsync(){
+  var hasDB = await _checkDB();
+  if(hasDB){
+    try{
+      var r = await fetch('/api/data');
+      var json = await r.json();
+      if(json.ok && json.data && json.data.pos_main){
+        _applyState(json.data.pos_main);
+        // Also save to day and roster data if present
+        if(json.data.pos_day){
+          var d=json.data.pos_day;
+          if(d.open!==undefined)_dayOpen=d.open;
+          if(d.sessionId)_currentSessionId=d.sessionId;
+          if(d.openedBy)_dayOpenedBy=d.openedBy;
+          if(d.openedAt)_dayOpenedAt=d.openedAt;
+          if(d.sessions)_daySessions=d.sessions;
+        }
+        if(json.data.pos_rosters){
+          var ro=json.data.pos_rosters;
+          if(ro.rosters)tournamentRosters=ro.rosters;
+          if(ro.declines)_declineLog=ro.declines;
+        }
+        // Mirror to localStorage
+        try{localStorage.setItem(STORE_KEY, JSON.stringify(json.data.pos_main));}catch(e){}
+        console.log('✅ Loaded from database');
+        return true;
+      }
+    }catch(e){ console.warn('DB load failed, trying localStorage:', e.message); }
+  }
+  // Fall back to localStorage
+  return loadStateLocal();
+}
+
+function loadStateLocal(){
   try{
     var raw=localStorage.getItem(STORE_KEY);if(!raw)return false;
-    var s=JSON.parse(raw);
-    if(s.sales)sales=s.sales;if(s.members)members=s.members;
-    if(s.products)products=s.products;if(s.bookings)bookings=s.bookings;
-    if(s.giftCerts)giftCerts=s.giftCerts;if(s.discounts)discounts=s.discounts;
-    if(s.memTypes)memTypes=s.memTypes;if(s.addonTypes)addonTypes=s.addonTypes;
-    if(s.courseFees)courseFees=s.courseFees;if(s.tournaments)tournaments=s.tournaments;
-    if(s.CFG)Object.assign(CFG,s.CFG);
-    if(s.nextMid)nextMid=s.nextMid;if(s.nextPid)nextPid=s.nextPid;
-    if(s.nextTid)nextTid=s.nextTid;if(s.nextCfId)nextCfId=s.nextCfId;
-    if(s.users)s.users.forEach(function(u){if(!users.find(function(x){return x.username===u.username;}))users.push(u);});
+    _applyState(JSON.parse(raw));
+    console.log('📦 Loaded from localStorage (offline mode)');
     return true;
-  }catch(e){console.warn('Load failed',e);return false;}
+  }catch(e){return false;}
 }
-setInterval(saveState,30000);
+
+// Override the day/roster saves to also hit the DB
+function saveDayState(){
+  var d={open:_dayOpen,sessionId:_currentSessionId,openedBy:_dayOpenedBy,openedAt:_dayOpenedAt,sessions:_daySessions};
+  try{localStorage.setItem('eagleridge_day', JSON.stringify(d));}catch(e){}
+  _checkDB().then(function(hasDB){
+    if(!hasDB) return;
+    fetch('/api/data/pos_day',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:d})}).catch(function(){});
+  });
+}
+function saveRosterState(){
+  var ro={rosters:tournamentRosters,declines:_declineLog};
+  try{localStorage.setItem('eagleridge_rosters', JSON.stringify(ro));}catch(e){}
+  _checkDB().then(function(hasDB){
+    if(!hasDB) return;
+    fetch('/api/data/pos_rosters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:ro})}).catch(function(){});
+  });
+}
+
+// Manual export — downloads a JSON backup file
+function exportData(){
+  _checkDB().then(async function(hasDB){
+    var state;
+    if(hasDB){
+      try{
+        var r=await fetch('/api/export');
+        var blob=await r.blob();
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');
+        a.href=url;a.download='golf-pos-backup-'+new Date().toISOString().split('T')[0]+'.json';
+        a.click();URL.revokeObjectURL(url);
+        return;
+      }catch(e){}
+    }
+    // Fallback: export from memory
+    state=_buildState();
+    var blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),data:{pos_main:state}},null,2)],{type:'application/json'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;a.download='golf-pos-backup-'+new Date().toISOString().split('T')[0]+'.json';
+    a.click();URL.revokeObjectURL(url);
+  });
+}
+
+// Manual import — restores from a JSON backup file
+function importData(){
+  var input=document.createElement('input');
+  input.type='file';input.accept='.json';
+  input.onchange=async function(e){
+    var file=e.target.files[0];if(!file)return;
+    var text=await file.text();
+    try{
+      var parsed=JSON.parse(text);
+      var data=parsed.data||parsed;
+      // Apply locally
+      if(data.pos_main)_applyState(data.pos_main);
+      else _applyState(data);
+      // Push to DB
+      var hasDB=await _checkDB();
+      if(hasDB){
+        await fetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:data})});
+      }
+      saveState();
+      initApp();
+      alert('✅ Data imported successfully!');
+    }catch(err){alert('Import failed: '+err.message);}
+  };
+  input.click();
+}
+
+// Auto-save every 30 seconds as extra safety net
+setInterval(saveState, 30000);
+
+// DB status indicator — shows in top bar
+function _showDBStatus(connected){
+  var el=$$('db-status');
+  if(!el)return;
+  el.textContent=connected?'🟢 DB':'🟡 Local';
+  el.title=connected?'Auto-saving to database':'Saving to browser only — check connection';
+}
+_checkDB().then(function(ok){ _showDBStatus(ok); });
+
 
 // ============================================================
 // CARDPOINTE GATEWAY
@@ -3090,17 +3258,20 @@ function closeAndClearDay(){
 }
 
 // ============================================================
-// PATCH initApp
+// PATCH initApp — load from DB first, then initialize
 // ============================================================
 var _baseInitApp=initApp;
 initApp=function(){
-  loadState();
-  _baseInitApp();
-  if($$('s-tax'))$$('s-tax').value=CFG.tax;
-  if($$('s-name'))$$('s-name').value=CFG.courseName;
-  if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
-  if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
-  if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
+  // Try DB load first (async), fall back to localStorage
+  loadStateAsync().then(function(){
+    _baseInitApp();
+    if($$('s-tax'))$$('s-tax').value=CFG.tax;
+    if($$('s-name'))$$('s-name').value=CFG.courseName;
+    if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
+    if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
+    if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
+    _checkDB().then(_showDBStatus);
+  });
 };
 
 
@@ -3356,7 +3527,7 @@ var _baseSaveState = saveState;
 saveState = function(){
   _baseSaveState();
   try{
-    localStorage.setItem('eagleridge_day', JSON.stringify({open:_dayOpen, sessionId:_currentSessionId, openedBy:_dayOpenedBy, openedAt:_dayOpenedAt, sessions:_daySessions}));
+    saveDayState();
   }catch(e){}
 };
 var _baseLoadState = loadState;
@@ -3964,7 +4135,7 @@ showTab = function(id, btn){
 var _baseSS2 = saveState;
 saveState = function(){
   _baseSS2();
-  try{ localStorage.setItem('eagleridge_rosters', JSON.stringify({rosters:tournamentRosters,declines:_declineLog})); }catch(e){}
+  try{ saveRosterState(); }catch(e){}
 };
 var _baseLSR = loadState;
 loadState = function(){
