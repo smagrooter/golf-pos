@@ -1,0 +1,15 @@
+{
+  "name": "golf-pro-shop-pos",
+  "version": "1.0.0",
+  "description": "Eagle Ridge Golf Course Pro Shop POS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
