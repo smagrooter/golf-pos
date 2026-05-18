@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Book a Tee Time — Green Hills Golf Club</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --green-dark:#1E4D0F;--green:#2E6B17;--green-mid:#3D8A22;--green-light:#EAF3DE;
+  --earth:#7B5E3A;--earth-light:#F5EFE6;--gold:#C8962A;
+  --gray:#f4f4f0;--border:#ddd;--text:#1a1a1a;--muted:#666;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--gray);color:var(--text);min-height:100vh}
+a{color:var(--green);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Header ── */
+.site-header{background:var(--green-dark);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:64px}
+.site-header .logo{display:flex;align-items:center;gap:10px;color:#fff;font-size:18px;font-weight:700;text-decoration:none}
+.site-header .logo span{font-size:28px}
+.header-actions{display:flex;align-items:center;gap:10px}
+.btn-outline-white{border:1.5px solid rgba(255,255,255,.5);color:#fff;background:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-family:inherit}
+.btn-outline-white:hover{background:rgba(255,255,255,.1)}
+.user-pill{background:rgba(255,255,255,.15);color:#fff;padding:5px 12px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:6px}
+
+/* ── Hero ── */
+.hero{background:linear-gradient(135deg,var(--green-dark) 0%,var(--green) 50%,var(--green-mid) 100%);padding:44px 20px 36px;text-align:center;color:#fff}
+.hero h1{font-size:clamp(22px,4vw,36px);font-weight:700;margin-bottom:8px;text-shadow:0 2px 8px rgba(0,0,0,.3)}
+.hero p{font-size:15px;opacity:.85;max-width:480px;margin:0 auto}
+.hero-flag{font-size:40px;margin-bottom:10px;display:block}
+
+/* ── Layout ── */
+.page{max-width:900px;margin:0 auto;padding:28px 16px 60px}
+.step-flow{display:grid;grid-template-columns:1fr;gap:18px}
+
+/* ── Cards ── */
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
+.card-hdr{background:var(--green-dark);color:#fff;padding:14px 20px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card-hdr .step-num{width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.card-body{padding:20px}
+
+/* ── Step indicators ── */
+.steps-bar{display:flex;gap:0;margin-bottom:22px}
+.step-item{flex:1;text-align:center;position:relative}
+.step-item::after{content:'';position:absolute;top:14px;left:50%;width:100%;height:2px;background:#ddd;z-index:0}
+.step-item:last-child::after{display:none}
+.step-dot{width:28px;height:28px;border-radius:50%;border:2px solid #ddd;background:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto 5px;font-size:12px;font-weight:700;color:#999;position:relative;z-index:1;transition:all .2s}
+.step-lbl{font-size:11px;color:#999;font-weight:500}
+.step-item.done .step-dot{background:var(--green);border-color:var(--green);color:#fff}
+.step-item.active .step-dot{background:var(--green-dark);border-color:var(--green-dark);color:#fff}
+.step-item.active .step-lbl{color:var(--green-dark);font-weight:700}
+.step-item.done .step-lbl{color:var(--green)}
+
+/* ── Date picker ── */
+.date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.date-btn{border:1.5px solid var(--border);border-radius:10px;padding:10px 4px;background:#fff;cursor:pointer;text-align:center;transition:all .15s;font-family:inherit}
+.date-btn:hover{border-color:var(--green);background:var(--green-light)}
+.date-btn.selected{border-color:var(--green-dark);background:var(--green-dark);color:#fff}
+.date-btn.today{border-color:var(--gold)}
+.date-btn .day-name{font-size:10px;color:inherit;opacity:.7;margin-bottom:2px;text-transform:uppercase;letter-spacing:.3px}
+.date-btn .day-num{font-size:18px;font-weight:700}
+.date-btn .month{font-size:10px;opacity:.7}
+.date-btn.selected .day-name,.date-btn.selected .month{opacity:.8}
+
+/* ── Time slots ── */
+.slots-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.slot-btn{border:1.5px solid var(--border);border-radius:9px;padding:10px 8px;background:#fff;cursor:pointer;text-align:center;transition:all .15s;font-family:inherit}
+.slot-btn:hover{border-color:var(--green);background:var(--green-light)}
+.slot-btn.selected{border-color:var(--green-dark);background:var(--green-dark);color:#fff}
+.slot-btn .slot-time{font-size:14px;font-weight:700}
+.slot-btn .slot-avail{font-size:10px;color:var(--muted);margin-top:2px}
+.slot-btn.selected .slot-avail{color:rgba(255,255,255,.75)}
+.slot-btn.limited{border-color:var(--gold)}
+.slots-empty{text-align:center;padding:28px;color:var(--muted);font-size:13px}
+
+/* ── Players selector ── */
+.players-row{display:flex;gap:8px;flex-wrap:wrap}
+.player-btn{width:52px;height:52px;border:1.5px solid var(--border);border-radius:10px;background:#fff;cursor:pointer;font-size:18px;font-weight:700;font-family:inherit;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.player-btn span{font-size:9px;font-weight:400;color:var(--muted)}
+.player-btn:hover{border-color:var(--green);background:var(--green-light)}
+.player-btn.selected{border-color:var(--green-dark);background:var(--green-dark);color:#fff}
+.player-btn.selected span{color:rgba(255,255,255,.75)}
+
+/* ── Holes ── */
+.holes-row{display:flex;gap:8px}
+.hole-btn{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:9px;background:#fff;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;text-align:center;transition:all .15s}
+.hole-btn:hover{border-color:var(--green);background:var(--green-light)}
+.hole-btn.selected{border-color:var(--green-dark);background:var(--green-dark);color:#fff}
+
+/* ── Forms ── */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+.form-group input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;transition:border-color .15s;background:#fff}
+.form-group input:focus{outline:none;border-color:var(--green)}
+.form-group input.err{border-color:#c0392b}
+.fg2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.extra-golfer{background:var(--gray);border-radius:9px;padding:12px;margin-bottom:10px}
+.extra-golfer label{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.4px}
+
+/* ── Auth tabs ── */
+.auth-tabs{display:flex;border-bottom:2px solid var(--border);margin-bottom:18px}
+.auth-tab{flex:1;padding:11px;text-align:center;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);font-family:inherit;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
+.auth-tab.active{color:var(--green-dark);border-bottom-color:var(--green-dark)}
+
+/* ── Buttons ── */
+.btn{padding:11px 20px;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:7px}
+.btn-green{background:var(--green-dark);color:#fff;width:100%;justify-content:center;padding:13px}
+.btn-green:hover{background:var(--green)}
+.btn-green:disabled{background:#bbb;cursor:not-allowed}
+.btn-outline{background:#fff;border:1.5px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--green);background:var(--green-light)}
+.btn-sm{padding:7px 13px;font-size:12px;border-radius:7px}
+.btn-row{display:flex;gap:9px;margin-top:14px}
+
+/* ── Summary box ── */
+.summary-box{background:var(--green-light);border:1.5px solid #C0DD97;border-radius:10px;padding:16px;margin-bottom:16px}
+.summary-box h4{font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px}
+.summary-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:3px 0}
+.summary-row .lbl{color:var(--muted)}
+.summary-row .val{font-weight:600;color:var(--text)}
+
+/* ── Confirmation ── */
+.confirm-card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.12);padding:36px 28px;text-align:center;max-width:480px;margin:0 auto}
+.confirm-icon{font-size:56px;margin-bottom:12px;display:block}
+.confirm-card h2{font-size:22px;font-weight:700;color:var(--green-dark);margin-bottom:6px}
+.confirm-card p{color:var(--muted);font-size:14px;margin-bottom:20px}
+.confirm-num{background:var(--green-dark);color:#fff;border-radius:8px;padding:10px 18px;font-size:16px;font-weight:700;letter-spacing:1px;display:inline-block;margin-bottom:20px}
+.confirm-details{background:var(--gray);border-radius:10px;padding:14px;text-align:left;margin-bottom:20px}
+.confirm-row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)}
+.confirm-row:last-child{border-bottom:none}
+
+/* ── Member badge ── */
+.member-badge{background:#EAF3DE;border:1px solid #9DC76A;border-radius:8px;padding:9px 13px;font-size:12px;color:var(--green-dark);display:flex;align-items:center;gap:7px;margin-bottom:12px}
+
+/* ── Loading ── */
+.loading{text-align:center;padding:32px;color:var(--muted);font-size:13px}
+.spinner{display:inline-block;width:22px;height:22px;border:3px solid #ddd;border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Error / info msgs ── */
+.msg{padding:10px 13px;border-radius:8px;font-size:13px;margin-bottom:10px}
+.msg-err{background:#FCEBEB;color:#791F1F;border:1px solid #e9b3b3}
+.msg-ok{background:#EAF3DE;color:#27500A;border:1px solid #9DC76A}
+.msg-info{background:#E6F1FB;color:#0C447C;border:1px solid #90bce8}
+
+/* ── My Bookings ── */
+.booking-item{border:1.5px solid var(--border);border-radius:10px;padding:13px 15px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.booking-item .b-main{font-weight:700;font-size:14px}
+.booking-item .b-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.badge{font-size:10px;padding:3px 8px;border-radius:10px;font-weight:700}
+.badge-green{background:#EAF3DE;color:#27500A}
+.badge-red{background:#FCEBEB;color:#791F1F}
+.badge-gray{background:var(--gray);color:var(--muted)}
+
+/* ── Footer ── */
+.site-footer{background:var(--green-dark);color:rgba(255,255,255,.7);text-align:center;padding:22px;font-size:12px}
+.site-footer a{color:rgba(255,255,255,.9)}
+
+/* ── Responsive ── */
+@media(max-width:500px){
+  .date-grid{grid-template-columns:repeat(4,1fr)}
+  .fg2{grid-template-columns:1fr}
+  .steps-bar{gap:0}
+  .step-lbl{font-size:9px}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="site-header">
+  <a class="logo" href="/book"><span>⛳</span>Green Hills Golf Club</a>
+  <div class="header-actions" id="header-actions">
+    <button class="btn-outline-white" onclick="showAuthModal('login')">Sign In</button>
+    <button class="btn-outline-white" onclick="showAuthModal('register')">Create Account</button>
+  </div>
+</header>
+
+<!-- Hero -->
+<div class="hero">
+  <span class="hero-flag">🏌️</span>
+  <h1>Book a Tee Time</h1>
+  <p>Tee times available up to 7 days in advance · Hole #1 · Pay at the course</p>
+</div>
+
+<!-- Auth Modal Overlay -->
+<div id="auth-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:none;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:28px;position:relative">
+    <button onclick="closeAuthModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:#999">✕</button>
+    <div style="text-align:center;margin-bottom:18px"><span style="font-size:32px">⛳</span><div style="font-size:16px;font-weight:700;color:var(--green-dark);margin-top:4px">Green Hills Golf Club</div></div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Create Account</button>
+    </div>
+    <!-- Login form -->
+    <div id="form-login">
+      <div id="login-msg"></div>
+      <div class="form-group"><label>Email address</label><input id="l-email" type="email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="form-group"><label>Password</label><input id="l-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="btn btn-green" onclick="doLogin()">Sign In</button>
+      <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--muted)">Don't have an account? <a href="#" onclick="switchAuthTab('register');return false">Create one</a></div>
+    </div>
+    <!-- Register form -->
+    <div id="form-register" style="display:none">
+      <div id="register-msg"></div>
+      <div class="fg2">
+        <div class="form-group"><label>First name</label><input id="r-first" placeholder="Jane" autocomplete="given-name"></div>
+        <div class="fg2" style="grid-column:1/-1"><div class="form-group"><label>Last name</label><input id="r-last" placeholder="Smith" autocomplete="family-name"></div></div>
+      </div>
+      <div class="form-group"><label>Email address</label><input id="r-email" type="email" placeholder="you@email.com" autocomplete="email"></div>
+      <div class="form-group"><label>Phone (optional)</label><input id="r-phone" type="tel" placeholder="(307) 555-0000" autocomplete="tel"></div>
+      <div class="form-group"><label>Password</label><input id="r-pass" type="password" placeholder="At least 6 characters" autocomplete="new-password"></div>
+      <div class="form-group"><label>Confirm password</label><input id="r-pass2" type="password" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()"></div>
+      <button class="btn btn-green" onclick="doRegister()">Create Account</button>
+      <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--muted)">Already have an account? <a href="#" onclick="switchAuthTab('login');return false">Sign in</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- Main booking flow -->
+<div class="page">
+
+  <!-- Step progress bar -->
+  <div class="steps-bar" id="steps-bar">
+    <div class="step-item active" id="s1"><div class="step-dot">1</div><div class="step-lbl">Date</div></div>
+    <div class="step-item" id="s2"><div class="step-dot">2</div><div class="step-lbl">Time</div></div>
+    <div class="step-item" id="s3"><div class="step-dot">3</div><div class="step-lbl">Details</div></div>
+    <div class="step-item" id="s4"><div class="step-dot">4</div><div class="step-lbl">Confirm</div></div>
+  </div>
+
+  <div class="step-flow" id="booking-flow">
+
+    <!-- STEP 1: Date -->
+    <div class="card" id="step1-card">
+      <div class="card-hdr"><div class="step-num">1</div> Select a Date</div>
+      <div class="card-body">
+        <div class="date-grid" id="date-grid"></div>
+      </div>
+    </div>
+
+    <!-- STEP 2: Time -->
+    <div class="card" id="step2-card" style="display:none">
+      <div class="card-hdr"><div class="step-num">2</div> Select a Tee Time</div>
+      <div class="card-body">
+        <div id="slots-container"><div class="loading"><span class="spinner"></span>Loading available times...</div></div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Details -->
+    <div class="card" id="step3-card" style="display:none">
+      <div class="card-hdr"><div class="step-num">3</div> Golfer Details</div>
+      <div class="card-body">
+        <div id="member-banner" style="display:none" class="member-badge">⭐ Signed in as a member — your information is pre-filled</div>
+
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Number of Players</div>
+          <div class="players-row" id="players-row">
+            <button class="player-btn selected" onclick="selectPlayers(1)">1<span>player</span></button>
+            <button class="player-btn" onclick="selectPlayers(2)">2<span>players</span></button>
+            <button class="player-btn" onclick="selectPlayers(3)">3<span>players</span></button>
+            <button class="player-btn" onclick="selectPlayers(4)">4<span>players</span></button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Holes</div>
+          <div class="holes-row">
+            <button class="hole-btn selected" id="h18" onclick="selectHoles('18')">18 Holes</button>
+            <button class="hole-btn" id="h9" onclick="selectHoles('9')">9 Holes</button>
+          </div>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Lead Golfer</div>
+        <div id="details-msg"></div>
+        <div class="fg2">
+          <div class="form-group"><label>First name</label><input id="d-first" placeholder="Jane"></div>
+          <div class="form-group"><label>Last name</label><input id="d-last" placeholder="Smith"></div>
+        </div>
+        <div class="form-group"><label>Email address</label><input id="d-email" type="email" placeholder="you@email.com"></div>
+
+        <div id="extra-golfers"></div>
+
+        <div class="form-group" style="margin-top:6px">
+          <label>Notes (optional)</label>
+          <input id="d-notes" placeholder="e.g. first time playing, need club rental info...">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-outline" onclick="goStep(2)">← Back</button>
+          <button class="btn btn-green" onclick="goStep(4)" style="flex:1">Continue →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 4: Confirm -->
+    <div class="card" id="step4-card" style="display:none">
+      <div class="card-hdr"><div class="step-num">4</div> Confirm Your Booking</div>
+      <div class="card-body">
+        <div id="confirm-msg"></div>
+        <div class="summary-box">
+          <h4>📋 Booking Summary</h4>
+          <div class="summary-row"><span class="lbl">Course</span><span class="val">Green Hills Golf Club — Hole #1</span></div>
+          <div class="summary-row"><span class="lbl">Date</span><span class="val" id="sum-date">—</span></div>
+          <div class="summary-row"><span class="lbl">Tee time</span><span class="val" id="sum-time">—</span></div>
+          <div class="summary-row"><span class="lbl">Holes</span><span class="val" id="sum-holes">—</span></div>
+          <div class="summary-row"><span class="lbl">Players</span><span class="val" id="sum-players">—</span></div>
+          <div class="summary-row"><span class="lbl">Lead golfer</span><span class="val" id="sum-name">—</span></div>
+          <div class="summary-row"><span class="lbl">Email</span><span class="val" id="sum-email">—</span></div>
+          <div class="summary-row" id="sum-extras-row" style="display:none"><span class="lbl">Additional golfers</span><span class="val" id="sum-extras">—</span></div>
+        </div>
+        <div class="msg msg-info">💳 Payment is collected at the course — no payment required to book</div>
+        <div class="btn-row">
+          <button class="btn btn-outline" onclick="goStep(3)">← Back</button>
+          <button class="btn btn-green" id="submit-btn" onclick="submitBooking()" style="flex:1">✓ Confirm Tee Time</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmation screen -->
+    <div id="confirm-screen" style="display:none">
+      <div class="confirm-card">
+        <span class="confirm-icon">🎉</span>
+        <h2>You're on the tee!</h2>
+        <p>Your tee time has been confirmed. Please arrive 15 minutes early and check in at the pro shop.</p>
+        <div class="confirm-num" id="conf-number">GH-0000</div>
+        <div class="confirm-details" id="conf-details"></div>
+        <button class="btn btn-green" onclick="startOver()">Book Another Tee Time</button>
+        <div style="margin-top:10px"><a href="/book?view=mybookings" style="font-size:13px;color:var(--green)">View my bookings</a></div>
+      </div>
+    </div>
+
+    <!-- My Bookings panel -->
+    <div id="my-bookings-panel" style="display:none">
+      <div class="card">
+        <div class="card-hdr">📅 My Bookings</div>
+        <div class="card-body" id="my-bookings-body">
+          <div class="loading"><span class="spinner"></span>Loading...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div>Green Hills Golf Club · 1455 Airport Rd, Worland, WY 82401 · (307) 347-8972</div>
+  <div style="margin-top:5px"><a href="mailto:info@greenhillswy.com">info@greenhillswy.com</a></div>
+</footer>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+var state = {
+  step: 1,
+  date: null,
+  time: null,
+  timeDisplay: null,
+  holes: '18',
+  players: 1,
+  maxAvail: 4,
+  extraNames: [],
+  golfer: null,
+  token: null
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function(){
+  loadToken();
+  buildDateGrid();
+  await checkSession();
+  // Check if ?view=mybookings
+  if (location.search.includes('mybookings')) showMyBookings();
+})();
+
+// ── Token storage ─────────────────────────────────────────────────────────────
+function loadToken(){
+  state.token = localStorage.getItem('gh_token');
+}
+function saveToken(t){ state.token = t; localStorage.setItem('gh_token', t); }
+function clearToken(){ state.token = null; localStorage.removeItem('gh_token'); }
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function checkSession(){
+  if (!state.token) return updateHeaderUI();
+  try {
+    const r = await api('GET','/api/accounts/me');
+    if (r.ok){ state.golfer = r.golfer; updateHeaderUI(); }
+    else { clearToken(); updateHeaderUI(); }
+  } catch { updateHeaderUI(); }
+}
+
+function updateHeaderUI(){
+  var el = document.getElementById('header-actions');
+  if (state.golfer) {
+    el.innerHTML = '<div class="user-pill">⛳ ' + state.golfer.firstName + ' ' + state.golfer.lastName
+      + '</div><button class="btn-outline-white" onclick="doLogout()">Sign Out</button>'
+      + '<button class="btn-outline-white" onclick="showMyBookings()">My Bookings</button>';
+    // Pre-fill details form
+    set('d-first', state.golfer.firstName);
+    set('d-last', state.golfer.lastName);
+    set('d-email', state.golfer.email);
+    document.getElementById('member-banner').style.display = 'flex';
+  } else {
+    el.innerHTML = '<button class="btn-outline-white" onclick="showAuthModal(\'login\')">Sign In</button>'
+      + '<button class="btn-outline-white" onclick="showAuthModal(\'register\')">Create Account</button>';
+    document.getElementById('member-banner').style.display = 'none';
+  }
+}
+
+function showAuthModal(tab){
+  document.getElementById('auth-overlay').style.display = 'flex';
+  switchAuthTab(tab || 'login');
+}
+function closeAuthModal(){ document.getElementById('auth-overlay').style.display = 'none'; }
+
+function switchAuthTab(t){
+  document.getElementById('form-login').style.display = t==='login'?'block':'none';
+  document.getElementById('form-register').style.display = t==='register'?'block':'none';
+  document.getElementById('tab-login').classList.toggle('active', t==='login');
+  document.getElementById('tab-register').classList.toggle('active', t==='register');
+  document.getElementById('login-msg').innerHTML = '';
+  document.getElementById('register-msg').innerHTML = '';
+}
+
+async function doLogin(){
+  var email = val('l-email'), pass = val('l-pass');
+  if (!email||!pass){ showMsg('login-msg','Please enter email and password','err');return; }
+  try {
+    var r = await api('POST','/api/accounts/login',{email,password:pass});
+    if (r.ok){ saveToken(r.token); state.golfer=r.golfer; closeAuthModal(); updateHeaderUI(); showMsg('login-msg','',''); }
+    else showMsg('login-msg', r.error||'Login failed','err');
+  } catch { showMsg('login-msg','Connection error','err'); }
+}
+
+async function doRegister(){
+  var first=val('r-first'),last=val('r-last'),email=val('r-email'),pass=val('r-pass'),pass2=val('r-pass2'),phone=val('r-phone');
+  if (!first||!last||!email||!pass){ showMsg('register-msg','Please fill in all required fields','err');return; }
+  if (pass !== pass2){ showMsg('register-msg','Passwords do not match','err');return; }
+  if (pass.length < 6){ showMsg('register-msg','Password must be at least 6 characters','err');return; }
+  try {
+    var r = await api('POST','/api/accounts/register',{firstName:first,lastName:last,email,password:pass,phone});
+    if (r.ok){ saveToken(r.token); state.golfer=r.golfer; closeAuthModal(); updateHeaderUI(); showMsg('register-msg','',''); }
+    else showMsg('register-msg', r.error||'Registration failed','err');
+  } catch { showMsg('register-msg','Connection error','err'); }
+}
+
+async function doLogout(){
+  try { await api('POST','/api/accounts/logout'); } catch {}
+  clearToken(); state.golfer=null; updateHeaderUI();
+  set('d-first','');set('d-last','');set('d-email','');
+}
+
+// ── Date grid ─────────────────────────────────────────────────────────────────
+function buildDateGrid(){
+  var grid = document.getElementById('date-grid');
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var today = new Date(); today.setHours(0,0,0,0);
+  var html = '';
+  for (var i=0; i<8; i++){
+    var d = new Date(today); d.setDate(today.getDate()+i);
+    var ds = fmtDate(d);
+    var isToday = i===0;
+    html += '<button class="date-btn'+(isToday?' today':'')+'" onclick="selectDate(\''+ds+'\',this)">'
+      +'<div class="day-name">'+days[d.getDay()]+'</div>'
+      +'<div class="day-num">'+d.getDate()+'</div>'
+      +'<div class="month">'+months[d.getMonth()]+'</div>'
+      +'</button>';
+  }
+  grid.innerHTML = html;
+}
+
+function fmtDate(d){
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+}
+function fmtDateDisplay(ds){
+  var parts = ds.split('-');
+  var d = new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]));
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return days[d.getDay()]+', '+months[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear();
+}
+function pad(n){ return String(n).padStart(2,'0'); }
+
+async function selectDate(ds, btn){
+  document.querySelectorAll('.date-btn').forEach(function(b){ b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  state.date = ds;
+  state.time = null;
+  state.timeDisplay = null;
+  // Show step 2
+  document.getElementById('step2-card').style.display = 'block';
+  document.getElementById('slots-container').innerHTML = '<div class="loading"><span class="spinner"></span>Loading available times...</div>';
+  setStepActive(2);
+  // Fetch slots
+  try {
+    var r = await api('GET','/api/teetimes/'+ds);
+    renderSlots(r.slots || []);
+  } catch {
+    document.getElementById('slots-container').innerHTML = '<div class="slots-empty">⚠️ Could not load tee times. Please try again.</div>';
+  }
+}
+
+function renderSlots(slots){
+  if (!slots.length){
+    document.getElementById('slots-container').innerHTML = '<div class="slots-empty">⛳ No available tee times for this date.<br><span style="font-size:11px;margin-top:6px;display:block">Try selecting a different date.</span></div>';
+    return;
+  }
+  var html = '<div class="slots-grid">';
+  slots.forEach(function(s){
+    var limited = s.available <= 2;
+    html += '<button class="slot-btn'+(limited?' limited':'')+'" onclick="selectSlot(\''+s.time+'\',\''+s.display+'\','+s.available+',this)">'
+      +'<div class="slot-time">'+s.display+'</div>'
+      +'<div class="slot-avail">'+s.available+' spot'+(s.available===1?'':'s')+' left</div>'
+      +'</button>';
+  });
+  html += '</div>';
+  document.getElementById('slots-container').innerHTML = html;
+}
+
+function selectSlot(time, display, avail, btn){
+  document.querySelectorAll('.slot-btn').forEach(function(b){ b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  state.time = time;
+  state.timeDisplay = display;
+  state.maxAvail = avail;
+  // Show step 3
+  document.getElementById('step3-card').style.display = 'block';
+  setStepActive(3);
+  // Reset players if more selected than available
+  if (state.players > avail) selectPlayers(avail);
+  // Update player buttons based on availability
+  document.querySelectorAll('.player-btn').forEach(function(b,i){
+    b.disabled = (i+1) > avail;
+    b.style.opacity = (i+1) > avail ? '0.4' : '1';
+  });
+  document.getElementById('step3-card').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ── Step 3 ────────────────────────────────────────────────────────────────────
+function selectPlayers(n){
+  state.players = n;
+  document.querySelectorAll('.player-btn').forEach(function(b,i){
+    b.classList.toggle('selected', i+1===n);
+  });
+  buildExtraGolfers(n);
+}
+
+function buildExtraGolfers(n){
+  var el = document.getElementById('extra-golfers');
+  if (n <= 1){ el.innerHTML=''; return; }
+  var html = '';
+  for (var i=2; i<=n; i++){
+    var prev = state.extraNames[i-2] || '';
+    html += '<div class="extra-golfer">'
+      +'<label>Golfer '+i+' Name <span style="font-weight:400;color:#999">(optional)</span></label>'
+      +'<input placeholder="First and last name" value="'+prev+'" oninput="state.extraNames['+(i-2)+']=this.value">'
+      +'</div>';
+  }
+  el.innerHTML = html;
+}
+
+function selectHoles(h){
+  state.holes = h;
+  document.getElementById('h18').classList.toggle('selected', h==='18');
+  document.getElementById('h9').classList.toggle('selected', h==='9');
+}
+
+// ── Step navigation ───────────────────────────────────────────────────────────
+function goStep(n){
+  if (n===4){
+    // Validate step 3
+    var first=val('d-first'),last=val('d-last'),email=val('d-email');
+    if (!first||!last){ showMsg('details-msg','Please enter the lead golfer\'s name','err'); return; }
+    if (!email||!email.includes('@')){ showMsg('details-msg','Please enter a valid email address','err'); return; }
+    showMsg('details-msg','','');
+    // Build summary
+    document.getElementById('sum-date').textContent = fmtDateDisplay(state.date);
+    document.getElementById('sum-time').textContent = state.timeDisplay;
+    document.getElementById('sum-holes').textContent = state.holes + ' holes';
+    document.getElementById('sum-players').textContent = state.players + ' player'+(state.players>1?'s':'');
+    document.getElementById('sum-name').textContent = first + ' ' + last;
+    document.getElementById('sum-email').textContent = email;
+    var extras = state.extraNames.slice(0, state.players-1).filter(Boolean);
+    if (extras.length){
+      document.getElementById('sum-extras-row').style.display='flex';
+      document.getElementById('sum-extras').textContent = extras.join(', ');
+    } else {
+      document.getElementById('sum-extras-row').style.display='none';
+    }
+    document.getElementById('step4-card').style.display='block';
+    setStepActive(4);
+    document.getElementById('step4-card').scrollIntoView({behavior:'smooth',block:'start'});
+  } else if (n===3){
+    document.getElementById('step4-card').style.display='none';
+    setStepActive(3);
+    document.getElementById('step3-card').scrollIntoView({behavior:'smooth',block:'start'});
+  } else if (n===2){
+    document.getElementById('step3-card').style.display='none';
+    document.getElementById('step4-card').style.display='none';
+    setStepActive(2);
+    document.getElementById('step2-card').scrollIntoView({behavior:'smooth',block:'start'});
+  }
+}
+
+function setStepActive(n){
+  state.step = n;
+  [1,2,3,4].forEach(function(i){
+    var el = document.getElementById('s'+i);
+    el.classList.remove('active','done');
+    if (i < n) el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  });
+}
+
+// ── Submit ────────────────────────────────────────────────────────────────────
+async function submitBooking(){
+  var btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Booking...';
+  showMsg('confirm-msg','','');
+
+  var first=val('d-first'),last=val('d-last'),email=val('d-email');
+  var extras = state.extraNames.slice(0,state.players-1).filter(Boolean);
+  var payload = {
+    date: state.date, time: state.time, holes: state.holes,
+    players: state.players, extraNames: extras,
+    notes: val('d-notes')
+  };
+  // Add guest info if not logged in
+  if (!state.golfer){
+    payload.guestFirst = first;
+    payload.guestLast = last;
+    payload.guestEmail = email;
+  }
+
+  try {
+    var r = await api('POST','/api/bookings', payload);
+    if (r.ok){
+      showConfirmation(r.confirmation);
+    } else {
+      showMsg('confirm-msg', r.error || 'Booking failed. Please try again.', 'err');
+      btn.disabled = false;
+      btn.textContent = '✓ Confirm Tee Time';
+    }
+  } catch {
+    showMsg('confirm-msg','Connection error. Please try again.','err');
+    btn.disabled = false;
+    btn.textContent = '✓ Confirm Tee Time';
+  }
+}
+
+function showConfirmation(c){
+  document.getElementById('booking-flow').style.display='none';
+  document.getElementById('steps-bar').style.display='none';
+  var cs = document.getElementById('confirm-screen');
+  cs.style.display='block';
+  document.getElementById('conf-number').textContent = c.confirmationNumber;
+  document.getElementById('conf-details').innerHTML =
+    '<div class="confirm-row"><span>Date</span><span>'+fmtDateDisplay(c.date)+'</span></div>'
+    +'<div class="confirm-row"><span>Tee time</span><span>'+c.time+'</span></div>'
+    +'<div class="confirm-row"><span>Holes</span><span>'+c.holes+' holes</span></div>'
+    +'<div class="confirm-row"><span>Players</span><span>'+c.players+'</span></div>'
+    +'<div class="confirm-row"><span>Name</span><span>'+c.name+'</span></div>'
+    +'<div class="confirm-row"><span>Confirmation</span><span>'+c.confirmationNumber+'</span></div>';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function startOver(){
+  state.date=null;state.time=null;state.timeDisplay=null;state.holes='18';state.players=1;state.extraNames=[];
+  document.getElementById('booking-flow').style.display='';
+  document.getElementById('steps-bar').style.display='flex';
+  document.getElementById('confirm-screen').style.display='none';
+  document.getElementById('step2-card').style.display='none';
+  document.getElementById('step3-card').style.display='none';
+  document.getElementById('step4-card').style.display='none';
+  document.getElementById('my-bookings-panel').style.display='none';
+  document.getElementById('step1-card').style.display='block';
+  document.querySelectorAll('.date-btn').forEach(function(b){b.classList.remove('selected');});
+  setStepActive(1);
+  buildDateGrid();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ── My Bookings ───────────────────────────────────────────────────────────────
+async function showMyBookings(){
+  if (!state.golfer){ showAuthModal('login'); return; }
+  document.getElementById('booking-flow').style.display='none';
+  document.getElementById('steps-bar').style.display='none';
+  document.getElementById('confirm-screen').style.display='none';
+  var panel = document.getElementById('my-bookings-panel');
+  panel.style.display='block';
+  var body = document.getElementById('my-bookings-body');
+  body.innerHTML='<div class="loading"><span class="spinner"></span>Loading...</div>';
+  try {
+    var r = await api('GET','/api/bookings/mine');
+    if (!r.ok || !r.bookings.length){
+      body.innerHTML='<div style="text-align:center;padding:28px;color:var(--muted);font-size:13px">No bookings yet.</div>'
+        +'<button class="btn btn-green" onclick="startOver()" style="margin-top:10px">Book a Tee Time</button>';
+      return;
+    }
+    var html='';
+    r.bookings.forEach(function(b){
+      var isPast = new Date(b.date+'T23:59:00') < new Date();
+      var badge = b.status==='cancelled'
+        ? '<span class="badge badge-red">Cancelled</span>'
+        : isPast
+          ? '<span class="badge badge-gray">Completed</span>'
+          : '<span class="badge badge-green">Confirmed</span>';
+      html+='<div class="booking-item">'
+        +'<div><div class="b-main">'+fmtDateDisplay(b.date)+' at '+formatTime12(b.time)+'</div>'
+        +'<div class="b-sub">'+b.holes+' holes · '+b.players+' player'+(b.players>1?'s':'')+'</div></div>'
+        +'<div style="display:flex;align-items:center;gap:8px">'+badge
+        +(b.status!=='cancelled'&&!isPast?'<button class="btn btn-outline btn-sm" onclick="cancelBooking('+b.id+',this)">Cancel</button>':'')
+        +'</div></div>';
+    });
+    html+='<button class="btn btn-green" onclick="startOver()" style="margin-top:10px">Book Another Tee Time</button>';
+    body.innerHTML=html;
+  } catch {
+    body.innerHTML='<div class="msg msg-err">Could not load bookings.</div>';
+  }
+}
+
+async function cancelBooking(id, btn){
+  if (!confirm('Cancel this tee time?')) return;
+  btn.disabled=true; btn.textContent='Cancelling...';
+  try {
+    var r = await api('POST','/api/bookings/'+id+'/cancel');
+    if (r.ok) showMyBookings();
+    else { alert(r.error||'Could not cancel.'); btn.disabled=false; btn.textContent='Cancel'; }
+  } catch { alert('Connection error'); btn.disabled=false; btn.textContent='Cancel'; }
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function val(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
+function set(id, v){ var el=document.getElementById(id); if(el) el.value=v; }
+
+function showMsg(id, text, type){
+  var el=document.getElementById(id); if(!el)return;
+  if (!text){ el.innerHTML=''; return; }
+  var cls = type==='err'?'msg-err':type==='ok'?'msg-ok':'msg-info';
+  el.innerHTML='<div class="msg '+cls+'">'+text+'</div>';
+}
+
+function formatTime12(t){
+  if (!t) return '';
+  var parts=t.split(':'); var h=parseInt(parts[0]),m=parseInt(parts[1]||0);
+  return (h%12||12)+':'+(m<10?'0':'')+m+' '+(h>=12?'PM':'AM');
+}
+
+async function api(method, url, body){
+  var opts={method,headers:{'Content-Type':'application/json'}};
+  if (state.token) opts.headers['Authorization']='Bearer '+state.token;
+  if (body) opts.body=JSON.stringify(body);
+  var r=await fetch(url,opts);
+  return r.json();
+}
+
+// Close auth modal on overlay click
+document.getElementById('auth-overlay').addEventListener('click',function(e){
+  if(e.target===this)closeAuthModal();
+});
+</script>
+</body>
+</html>
