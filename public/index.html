@@ -2851,9 +2851,10 @@ function _applyState(s){
 
 // Save state — always writes to localStorage immediately,
 // then debounces a DB save 800ms later so rapid changes don't spam the DB
+// IMPORTANT: merges remote bookings before saving so online bookings are never wiped
 function saveState(){
-  var state = _buildState();
   // Always save to localStorage as fast local cache
+  var state = _buildState();
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
   // Debounce DB save
   if(_saveTimer) clearTimeout(_saveTimer);
@@ -2861,11 +2862,33 @@ function saveState(){
     var hasDB = await _checkDB();
     if(!hasDB) return;
     try{
+      // Fetch the latest DB version first, merge remote bookings in
+      // so we never overwrite online bookings with a stale local copy
+      var fetchR = await fetch('/api/data');
+      var fetchJ = await fetchR.json();
+      var mergedBookings = Object.assign({}, bookings);
+      if(fetchJ.ok && fetchJ.data && fetchJ.data.pos_main){
+        var remoteBookings = fetchJ.data.pos_main.bookings || {};
+        // Add any remote bookings (online bookings) not in local state
+        Object.entries(remoteBookings).forEach(function(e){
+          var k=e[0], b=e[1];
+          if(b.onlineBookingId && !mergedBookings[k]){
+            mergedBookings[k] = b;
+          }
+        });
+      }
+      var stateToSave = _buildState();
+      stateToSave.bookings = mergedBookings;
       await fetch('/api/data/pos_main', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({value: state})
+        body: JSON.stringify({value: stateToSave})
       });
+      // Update local bookings to include merged ones
+      if(Object.keys(mergedBookings).length > Object.keys(bookings).length){
+        Object.assign(bookings, mergedBookings);
+        renderTee();
+      }
     }catch(e){ console.warn('DB save failed, localStorage still has it:', e.message); }
   }, 800);
 }
@@ -2879,7 +2902,6 @@ async function loadStateAsync(){
       var json = await r.json();
       if(json.ok && json.data && json.data.pos_main){
         _applyState(json.data.pos_main);
-        // Also save to day and roster data if present
         if(json.data.pos_day){
           var d=json.data.pos_day;
           if(d.open!==undefined)_dayOpen=d.open;
@@ -2893,14 +2915,14 @@ async function loadStateAsync(){
           if(ro.rosters)tournamentRosters=ro.rosters;
           if(ro.declines)_declineLog=ro.declines;
         }
-        // Mirror to localStorage
+        // Set initial booking count for sync tracking
+        _lastBookingCount = Object.keys(bookings).length;
         try{localStorage.setItem(STORE_KEY, JSON.stringify(json.data.pos_main));}catch(e){}
-        console.log('✅ Loaded from database');
+        console.log('✅ Loaded from database ('+_lastBookingCount+' bookings)');
         return true;
       }
     }catch(e){ console.warn('DB load failed, trying localStorage:', e.message); }
   }
-  // Fall back to localStorage
   return loadStateLocal();
 }
 
@@ -3000,17 +3022,20 @@ async function manualTeeRefresh(){
     if(json.ok&&json.data&&json.data.pos_main){
       var remoteBookings=json.data.pos_main.bookings||{};
       var changed=false;
+      // Add all remote bookings that aren't in local
       Object.entries(remoteBookings).forEach(function(e){
-        if(!bookings[e[0]]){bookings[e[0]]=e[1];changed=true;}
+        var k=e[0],b=e[1];
+        if(!bookings[k]){bookings[k]=b;changed=true;}
       });
+      // Remove local online bookings that were cancelled remotely
       Object.keys(bookings).forEach(function(k){
         if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}
       });
       _lastBookingCount=Object.keys(bookings).length;
-      renderTee();
+      if(changed) renderTee();
       var notice=document.getElementById('tee-refresh-notice');
       if(notice){
-        notice.textContent=changed?'✅ Tee sheet synced — new bookings loaded':'✅ Tee sheet is up to date';
+        notice.textContent=changed?'✅ New bookings loaded from website':'✅ Tee sheet is up to date';
         notice.style.display='flex';
         setTimeout(function(){notice.style.display='none';notice.textContent='🔔 New online booking received — tee sheet updated';},3000);
       }
@@ -3024,7 +3049,7 @@ async function manualTeeRefresh(){
 var _lastBookingCount = 0;
 var _teeRefreshTimer = null;
 function startTeeRefresh(){
-  if(_teeRefreshTimer) return; // already running
+  if(_teeRefreshTimer) return;
   _teeRefreshTimer = setInterval(async function(){
     var hasDB = await _checkDB();
     if(!hasDB) return;
@@ -3033,31 +3058,28 @@ function startTeeRefresh(){
       var json = await r.json();
       if(!json.ok || !json.data || !json.data.pos_main) return;
       var remoteBookings = json.data.pos_main.bookings || {};
-      var remoteCount = Object.keys(remoteBookings).length;
-      if(remoteCount !== _lastBookingCount){
-        // New or cancelled bookings detected — merge remote into local
-        var changed = false;
-        // Add any remote bookings not in local
-        Object.entries(remoteBookings).forEach(function(e){
-          var k=e[0], b=e[1];
-          if(!bookings[k]){ bookings[k]=b; changed=true; }
-        });
-        // Remove local bookings that were cancelled online
-        Object.keys(bookings).forEach(function(k){
-          if(bookings[k].onlineBookingId && !remoteBookings[k]){ delete bookings[k]; changed=true; }
-        });
-        _lastBookingCount = Object.keys(bookings).length;
-        if(changed){
-          renderTee();
-          // Show subtle notification
-          var el=document.getElementById('tee-refresh-notice');
-          if(el){ el.style.display='flex'; setTimeout(function(){el.style.display='none';},4000); }
-        }
+      var changed = false;
+      // Add remote bookings not in local
+      Object.entries(remoteBookings).forEach(function(e){
+        var k=e[0], b=e[1];
+        if(!bookings[k]){ bookings[k]=b; changed=true; }
+      });
+      // Remove cancelled online bookings
+      Object.keys(bookings).forEach(function(k){
+        if(bookings[k].onlineBookingId && !remoteBookings[k]){ delete bookings[k]; changed=true; }
+      });
+      var newCount = Object.keys(bookings).length;
+      if(changed){
+        _lastBookingCount = newCount;
+        renderTee();
+        var el=document.getElementById('tee-refresh-notice');
+        if(el){ el.style.display='flex'; setTimeout(function(){el.style.display='none';},4000); }
+      } else {
+        _lastBookingCount = newCount;
       }
     }catch(e){ /* silent fail */ }
-  }, 30000); // every 30 seconds
+  }, 30000);
 }
-// Start polling after initial load
 setTimeout(startTeeRefresh, 5000);
 
 // DB status indicator — shows in top bar
