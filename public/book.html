@@ -526,8 +526,8 @@ function renderSlots(slots){
   slots.forEach(function(s){
     var limited = s.available <= 2;
     var disc = applyBookingDiscount(s.time);
-    var discBadge = disc ? '<div style="font-size:9px;background:#FAEEDA;color:#633806;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:600">🏷 '+disc.name+(disc.type==='pct'?' ('+disc.val+'% off)':' ($'+disc.val+' off)')+'</div>' : '';
-    html += '<button class="slot-btn'+(limited?' limited':'')+(disc?' selected':'')+(disc?'" style="border-color:#C8962A;background:#FFF8EC':'')+'" onclick="selectSlot(\''+s.time+'\',\''+s.display+'\','+s.available+',this)">'
+    var discBadge = disc ? '<div style="font-size:9px;background:#FAEEDA;color:#1a1a1a;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:600">🏷 '+disc.name+(disc.type==='pct'?' ('+disc.val+'% off)':' ($'+disc.val+' off)')+'</div>' : '';
+    html += '<button class="slot-btn'+(limited?' limited':'')+'" '+(disc?'style="border-color:#C8962A;background:#FFF8EC"':'')+' onclick="selectSlot(\''+s.time+'\',\''+s.display+'\','+s.available+',this)">'
       +'<div class="slot-time">'+s.display+'</div>'
       +'<div class="slot-avail">'+s.available+' spot'+(s.available===1?'':'s')+' left</div>'
       +discBadge
