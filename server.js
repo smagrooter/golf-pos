@@ -192,13 +192,19 @@ app.get('/api/teetimes/:date', async (req, res) => {
     // Load POS bookings
     const posR = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
     let posBookings = {};
-    let openHour = 7, closeHour = 18;
+    let openHour = 7, openMin = 0, closeHour = 18, closeMin = 0, teeInterval = 10;
     if (posR.rows.length) {
       try {
         const pd = JSON.parse(posR.rows[0].value);
         posBookings = pd.bookings || {};
-        if (pd.CFG?.teeOpenHour !== undefined) openHour = pd.CFG.teeOpenHour;
-        if (pd.CFG?.teeCloseHour !== undefined) closeHour = pd.CFG.teeCloseHour;
+        const cfg = pd.CFG || {};
+        // POS stores as teeStart "07:00" / teeEnd "18:00"
+        if (cfg.teeStart) { const [h,m] = cfg.teeStart.split(':').map(Number); openHour=h; openMin=m||0; }
+        if (cfg.teeEnd)   { const [h,m] = cfg.teeEnd.split(':').map(Number);   closeHour=h; closeMin=m||0; }
+        // Legacy numeric format fallback
+        if (cfg.teeOpenHour !== undefined)  { openHour = cfg.teeOpenHour; openMin = 0; }
+        if (cfg.teeCloseHour !== undefined) { closeHour = cfg.teeCloseHour; closeMin = 0; }
+        if (cfg.teeInt) teeInterval = parseInt(cfg.teeInt) || 10;
       } catch {}
     }
     // Load online bookings
@@ -213,16 +219,21 @@ app.get('/api/teetimes/:date', async (req, res) => {
     onlineR.rows.forEach(b => {
       usage[b.time] = (usage[b.time]||0) + (parseInt(b.players)||1);
     });
-    // Generate slots
+    // Generate slots using actual POS settings
     const now = new Date();
     const slots = [];
-    for (let h = openHour; h < closeHour; h++) {
-      for (let m = 0; m < 60; m += 10) {
-        if (diffDays === 0 && (h < now.getHours() || (h === now.getHours() && m <= now.getMinutes()))) continue;
-        const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-        const avail = Math.max(0, 4 - (usage[t]||0));
-        if (avail > 0) slots.push({ time: t, available: avail, display: formatTime(t) });
+    const openTotalMin = openHour * 60 + openMin;
+    const closeTotalMin = closeHour * 60 + closeMin;
+    for (let totalMin = openTotalMin; totalMin <= closeTotalMin; totalMin += teeInterval) {
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      if (diffDays === 0) {
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        if (totalMin <= nowMin) continue;
       }
+      const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      const avail = Math.max(0, 4 - (usage[t]||0));
+      if (avail > 0) slots.push({ time: t, available: avail, display: formatTime(t) });
     }
     // Get active discounts for this date/time from POS settings
     let activeDiscounts = [];
@@ -238,13 +249,20 @@ app.get('/api/teetimes/:date', async (req, res) => {
       } catch {}
     }
 
-    // Get tee time blocks for this date
+    // Get tee time blocks for this date (including recurring)
     let teeBlocksForDate = [];
     if (posR.rows.length) {
       try {
         const posData = JSON.parse(posR.rows[0].value);
         const allBlocks = posData.teeBlocks || [];
-        teeBlocksForDate = allBlocks.filter(b => b.date === date);
+        const reqDateObj = new Date(date + 'T12:00:00');
+        const dow = reqDateObj.getDay();
+        const monthDay = date.substring(5); // MM-DD
+        teeBlocksForDate = allBlocks.filter(b => {
+          if (b.recur === 'weekly') return b.dows && b.dows.indexOf(dow) >= 0;
+          if (b.recur === 'annual') return b.monthDay === monthDay;
+          return b.date === date; // once (default)
+        });
       } catch {}
     }
 
