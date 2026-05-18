@@ -242,6 +242,7 @@ tr.unpaid-row{background:#FFF0F0}
           <button class="pos-tab-btn pos-tab-on" onclick="posSwitchTab('fees',this)">⛳ Fees</button>
           <button class="pos-tab-btn" onclick="posSwitchTab('shop',this)">🛒 Shop</button>
           <button class="pos-tab-btn" onclick="posSwitchTab('events',this)">🏆 Events</button>
+          <button class="pos-tab-btn" onclick="posSwitchTab('addons',this)">➕ Add-ons</button>
         </div>
 
         <!-- FEES pane -->
@@ -262,6 +263,14 @@ tr.unpaid-row{background:#FFF0F0}
         <div id="pos-pane-events" class="pos-tab-pane">
           <div style="padding:8px">
             <div id="pos-tournaments" style="font-size:12px;color:#888">No tournaments yet.</div>
+          </div>
+        </div>
+
+        <!-- ADD-ONS pane -->
+        <div id="pos-pane-addons" class="pos-tab-pane">
+          <div style="padding:8px">
+            <div style="font-size:11px;color:#666;margin-bottom:8px">Select a member above, then click an add-on to apply it to their account and load it for payment.</div>
+            <div id="pos-addon-tiles" class="fee-tile-grid"></div>
           </div>
         </div>
       </div>
@@ -594,7 +603,10 @@ tr.unpaid-row{background:#FFF0F0}
         <input id="inv-q" placeholder="Search products..." oninput="renderInv()" style="width:165px">
         <select id="inv-cat-f" onchange="renderInv()" style="width:145px"></select>
       </div>
-      <button class="btn bg-green" onclick="openInvModal(null)">+ Add Product</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn bg-green" onclick="openInvModal(null)">+ Add Product</button>
+        <button class="btn bg-blue" onclick="openInvReceived()">📦 Inventory Received</button>
+      </div>
     </div>
     <table style="table-layout:fixed"><thead><tr><th>Name</th><th style="width:75px">Price</th><th style="width:60px">Stock</th><th style="width:90px">Category</th><th style="width:75px">SKU</th><th style="width:80px"></th></tr></thead>
     <tbody id="inv-table"></tbody></table>
@@ -635,6 +647,8 @@ tr.unpaid-row{background:#FFF0F0}
           <option value="membership">Membership payments</option>
           <option value="tax">Sales tax report</option>
           <option value="shift">Cashier shift report</option>
+          <option value="cash_reconciliation">Cash Reconciliation (Admin)</option>
+          <option value="inventory">Inventory Report</option>
         </select>
       </div>
       <div><label>Period A</label>
@@ -986,16 +1000,23 @@ tr.unpaid-row{background:#FFF0F0}
 <!-- Member modal -->
 <div id="ov-mem" class="ov"><div class="modal" style="max-width:600px">
   <div class="modal-hdr" id="mem-modal-hdr">Add Member <button class="btn btn-sm" onclick="closeOv('ov-mem')">✕</button></div>
-  <div class="sec-lbl">Contact Info</div>
+  <div class="sec-lbl">Lead Member Contact Info</div>
   <div class="fg fg2"><div><label>First name</label><input id="m-first"></div><div><label>Last name</label><input id="m-last"></div></div>
   <div class="fg fg2"><div><label>Phone</label><input id="m-phone"></div><div><label>Email</label><input id="m-email"></div></div>
   <div class="fg" style="margin-bottom:8px"><label>Address</label><input id="m-addr"></div>
   <hr class="div">
   <div class="sec-lbl">Membership</div>
-  <div class="fg fg2"><div><label>Membership type</label><select id="m-type" onchange="calcMemberDues()"></select></div><div><label>Expiration date</label><input type="date" id="m-exp" readonly style="background:#f8f8f4"></div></div>
+  <div class="fg fg2"><div><label>Membership type</label><select id="m-type" onchange="onMemTypeChange()"></select></div><div><label>Expiration date</label><input type="date" id="m-exp" readonly style="background:#f8f8f4"></div></div>
   <div id="m-addon-checkboxes" class="fg fg3" style="margin-bottom:8px"></div>
-  <div class="fg fg2"><div><label>Spouse / partner (if applicable)</label><input id="m-spouse" placeholder="Name"></div><div><label>Family members (comma-separated)</label><input id="m-family" placeholder="e.g. Jake, Emma"></div></div>
+  <div class="fg" style="margin-bottom:8px"><label>Family members (comma-separated, not spouse)</label><input id="m-family" placeholder="e.g. Jake, Emma"></div>
   <hr class="div">
+  <!-- Spouse section — shown only for Couple/Family memberships -->
+  <div id="m-spouse-section" style="display:none">
+    <div class="sec-lbl" style="color:#185FA5">👥 Spouse / Partner Info <span style="font-size:10px;font-weight:400;color:#666">(will create a linked membership)</span></div>
+    <div class="fg fg2"><div><label>First name</label><input id="m-sp-first"></div><div><label>Last name</label><input id="m-sp-last"></div></div>
+    <div class="fg fg2"><div><label>Phone</label><input id="m-sp-phone"></div><div><label>Email</label><input id="m-sp-email"></div></div>
+    <hr class="div">
+  </div>
   <div class="sec-lbl">Dues</div>
   <div class="fg fg2">
     <div><label>Total dues ($) <span style="color:#185FA5;font-size:10px">— auto-calculated, editable</span></label><input type="number" id="m-dues" step="0.01" placeholder="0.00"></div>
@@ -1003,6 +1024,31 @@ tr.unpaid-row{background:#FFF0F0}
   </div>
   <div style="display:flex;gap:7px;margin-top:8px"><button class="btn bg-green" onclick="saveMember()">✓ Save Member</button><button class="btn" onclick="closeOv('ov-mem')">Cancel</button></div>
   <div id="m-msg"></div>
+</div></div>
+
+<!-- Inventory Received Modal -->
+<div id="ov-inv-recv" class="ov"><div class="modal" style="max-width:820px">
+  <div class="modal-hdr">📦 Inventory Received <button class="btn btn-sm" onclick="closeOv('ov-inv-recv')">✕</button></div>
+  <div style="font-size:12px;color:#666;margin-bottom:10px">Enter received items. Existing products will have quantity added. New products will be created.</div>
+  <div style="overflow-x:auto">
+    <table id="recv-table" style="table-layout:fixed;min-width:680px">
+      <thead><tr>
+        <th>Item Name <span style="font-size:10px;font-weight:400;color:#888">(or scan SKU)</span></th>
+        <th style="width:90px">SKU</th>
+        <th style="width:90px">Our Cost ($)</th>
+        <th style="width:90px">Sell Price ($)</th>
+        <th style="width:80px">Qty Recv.</th>
+        <th style="width:36px"></th>
+      </tr></thead>
+      <tbody id="recv-rows"></tbody>
+    </table>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="addRecvRow()">+ Add Row</button>
+    <button class="btn btn-sm bg-green" onclick="processInventoryReceived()" style="margin-left:auto">✓ Apply to Inventory</button>
+    <button class="btn btn-sm" onclick="closeOv('ov-inv-recv')">Cancel</button>
+  </div>
+  <div id="recv-msg" style="margin-top:8px"></div>
 </div></div>
 
 <!-- User add -->
@@ -1233,6 +1279,7 @@ var crActive=null,gcLast=null;
 var editMemId=null,editInvId=null,editTournId=null,editCfId=null;
 var splits=[];
 var posMemberId=null;
+var eodHistory=[];
 var members=[
   {id:1,first:'John',last:'Smith',phone:'(307)555-0101',email:'john@email.com',addr:'123 Main St',type:'Single',addons:[],spouse:'',family:'',exp:'2025-12-31',dues:800,paid:true,credit:0,creditH:[],isMember:true},
   {id:2,first:'Mary',last:'Johnson',phone:'(307)555-0102',email:'mary@email.com',addr:'456 Oak Ave',type:'Couple',addons:['Cart membership'],spouse:'Tom Johnson',family:'',exp:'2025-12-31',dues:1700,paid:false,credit:50,creditH:[{date:'5/10',type:'add',amt:50,reason:'Tournament win'}],isMember:true},
@@ -1250,8 +1297,32 @@ function openOv(id){$$(id).classList.add('on');}
 function closeOv(id){$$(id).classList.remove('on');}
 function sMsg(id,txt,type){var el=$$(id);if(!el)return;if(!txt){el.innerHTML='';return;}var cls=type==='green'?'m-green':type==='red'?'m-red':type==='amber'?'m-amber':'m-blue';el.innerHTML='<div class="msg '+cls+'">'+txt+'</div>';}
 function buildTimes(){TIMES=[];var p=CFG.teeStart.split(':'),sh=+p[0],sm=+p[1];var p2=CFG.teeEnd.split(':'),eh=+p2[0],em=+p2[1];var cur=sh*60+sm,end=eh*60+em;while(cur<=end){var h=Math.floor(cur/60),m=cur%60;TIMES.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);cur+=CFG.teeInt;}}
-function isMemberExpired(m){if(!m.exp||!CFG.memExpiry)return false;return m.exp<=todayStr()&&CFG.memExpiry<=todayStr();}
-function checkExpirations(){members.forEach(function(m){if(m.paid&&isMemberExpired(m)){m.paid=false;}});}
+function isMemberExpired(m){
+  if(!m.exp) return false;
+  return m.exp < todayStr();
+}
+function checkExpirations(){
+  var today=todayStr();
+  members.forEach(function(m){
+    if(m.exp && m.exp < today){
+      // Expired — mark unpaid and inactive
+      if(m.active !== false || m.paid){
+        m.paid = false;
+        m.active = false;
+        m.unpaidAddons = [];
+      }
+    }
+  });
+}
+function onMemTypeChange(){
+  calcMemberDues();
+  var type=$$('m-type').value||'';
+  var spSection=$$('m-spouse-section');
+  if(spSection){
+    var showSpouse=type.toLowerCase().indexOf('couple')>=0||type.toLowerCase().indexOf('family')>=0;
+    spSection.style.display=showSpouse?'block':'none';
+  }
+}
 
 // ============================================================
 // TABS
@@ -1706,7 +1777,20 @@ function completeSale(){
   });
   cart.filter(function(x){return x.memberId;}).forEach(function(x){
     var m=members.find(function(mm){return mm.id===x.memberId;});
-    if(m){m.paid=true;m.unpaidAddons=[];m.exp=CFG.memExpiry||m.exp;}
+    if(m){
+      m.paid=true;m.unpaidAddons=[];m.active=true;m.exp=CFG.memExpiry||m.exp;
+      // Apply add-on to member's addon list if it was an addon purchase
+      if(x.name&&x.name.indexOf('Membership add-on:')===0){
+        var addonName=x.name.replace('Membership add-on:','').split('—')[0].trim();
+        if(!m.addons)m.addons=[];
+        if(m.addons.indexOf(addonName)<0)m.addons.push(addonName);
+      }
+      // If member has a linked spouse, mark them paid too
+      if(m.linkedSpouseId){
+        var sp=members.find(function(s){return s.id===m.linkedSpouseId;});
+        if(sp){sp.paid=true;sp.unpaidAddons=[];sp.active=true;sp.exp=m.exp;}
+      }
+    }
   });
   cart.forEach(function(x){if(x.productId){var p=products.find(function(pp){return pp.id===x.productId;});if(p&&p.stock<999)p.stock=Math.max(0,p.stock-x.qty);}});
   var method='cash';
@@ -1834,6 +1918,34 @@ function renderCourseFees(){
   }).join('')||'<div style="color:#888;font-size:13px">No course fees added yet. Click + Add Fee above.</div>';
   renderPosCourseFees();
 }
+function renderPosAddonTiles(){
+  var el=$$('pos-addon-tiles');if(!el)return;
+  if(!addonTypes.length){el.innerHTML='<div style="color:#888;font-size:11px;padding:4px">No add-on types set up. Go to Settings → Membership Add-ons.</div>';return;}
+  el.innerHTML=addonTypes.map(function(a){
+    return'<button class="fee-tile" onclick="addAddonToCart(\''+a.name+'\','+a.price+')">'
+      +'<div class="ft-icon">⭐</div>'
+      +'<div class="ft-name">'+a.name+'</div>'
+      +'<div class="ft-price">'+C(a.price)+'</div>'
+      +'</button>';
+  }).join('');
+}
+function addAddonToCart(addonName, price){
+  // Check a member is selected
+  if(!posMemberId){sMsg('sale-msg','Select a member first before adding a membership add-on.','red');return;}
+  var m=members.find(function(x){return x.id===posMemberId;});
+  if(!m){sMsg('sale-msg','Member not found.','red');return;}
+  // Check they don't already have it
+  if(m.addons&&m.addons.indexOf(addonName)>=0){
+    if(!confirm(m.first+' '+m.last+' already has "'+addonName+'". Add it again?')) return;
+  }
+  // Add to cart with member tag
+  addCustom('Membership add-on: '+addonName+' — '+m.first+' '+m.last,price,1,'Membership',null,m.id);
+  // Mark as unpaid addon on the member record
+  if(!m.unpaidAddons)m.unpaidAddons=[];
+  if(m.unpaidAddons.indexOf(addonName)<0)m.unpaidAddons.push(addonName);
+  sMsg('sale-msg',addonName+' added for '+m.first+' '+m.last+'. Complete sale to apply.','blue');
+}
+
 function renderPosCourseFees(){
   var el=$$('pos-course-fees');if(!el)return;
   if(!courseFees.length){el.innerHTML='<div style="color:#888;font-size:11px;grid-column:1/-1;padding:8px">No fees set up yet.</div>';return;}
@@ -2375,6 +2487,90 @@ function printBatch(){if(!labelBatch.length)return;var w=window.open('','_blank'
 // ============================================================
 // INVENTORY
 // ============================================================
+function openInvReceived(){
+  $$('recv-rows').innerHTML='';
+  $$('recv-msg').innerHTML='';
+  // Add 5 empty rows to start
+  for(var i=0;i<5;i++) addRecvRow();
+  openOv('ov-inv-recv');
+  // Focus first row name input
+  setTimeout(function(){var first=$$('recv-rows').querySelector('input');if(first)first.focus();},150);
+}
+function addRecvRow(){
+  var tbody=$$('recv-rows');
+  var idx=tbody.children.length;
+  var tr=document.createElement('tr');
+  tr.innerHTML='<td><input placeholder="Item name or scan barcode..." oninput="recvLookupSku(this,'+idx+')" style="width:100%;font-size:12px;padding:5px 7px"></td>'
+    +'<td><input id="recv-sku-'+idx+'" placeholder="SKU" style="width:100%;font-size:12px;padding:5px 7px" oninput="recvLookupSkuField(this)"></td>'
+    +'<td><input type="number" id="recv-cost-'+idx+'" placeholder="0.00" step="0.01" min="0" style="width:100%;font-size:12px;padding:5px 7px"></td>'
+    +'<td><input type="number" id="recv-price-'+idx+'" placeholder="0.00" step="0.01" min="0" style="width:100%;font-size:12px;padding:5px 7px"></td>'
+    +'<td><input type="number" id="recv-qty-'+idx+'" placeholder="0" min="0" style="width:100%;font-size:12px;padding:5px 7px"></td>'
+    +'<td><button class="btn bg-red btn-sm" onclick="this.closest(\'tr\').remove()" style="padding:3px 6px">✕</button></td>';
+  tbody.appendChild(tr);
+}
+function recvLookupSku(nameInput, idx){
+  // Check if the name field value matches an existing SKU
+  var val=nameInput.value.trim();
+  var existing=products.find(function(p){return p.sku&&p.sku.toLowerCase()===val.toLowerCase();});
+  if(existing){
+    nameInput.value=existing.name;
+    var skuEl=document.getElementById('recv-sku-'+idx);
+    var priceEl=document.getElementById('recv-price-'+idx);
+    var costEl=document.getElementById('recv-cost-'+idx);
+    if(skuEl)skuEl.value=existing.sku;
+    if(priceEl)priceEl.value=existing.price;
+    if(costEl&&existing.lastCost)costEl.value=existing.lastCost;
+  }
+}
+function recvLookupSkuField(skuInput){
+  var val=skuInput.value.trim();
+  if(!val)return;
+  var existing=products.find(function(p){return p.sku&&p.sku.toLowerCase()===val.toLowerCase();});
+  if(existing){
+    // Fill the name field in same row
+    var nameInput=skuInput.closest('tr').querySelector('input:first-child');
+    if(nameInput)nameInput.value=existing.name;
+    var row=skuInput.closest('tr');
+    var inputs=row.querySelectorAll('input');
+    // inputs[0]=name, [1]=sku, [2]=cost, [3]=price, [4]=qty
+    if(inputs[3]&&!inputs[3].value)inputs[3].value=existing.price;
+    if(inputs[2]&&existing.lastCost&&!inputs[2].value)inputs[2].value=existing.lastCost;
+  }
+}
+function processInventoryReceived(){
+  var rows=$$('recv-rows').querySelectorAll('tr');
+  var applied=0,created=0,skipped=0;
+  rows.forEach(function(tr){
+    var inputs=tr.querySelectorAll('input');
+    var name=(inputs[0]?inputs[0].value.trim():'');
+    var sku=(inputs[1]?inputs[1].value.trim():'');
+    var cost=parseFloat(inputs[2]?inputs[2].value:0)||0;
+    var price=parseFloat(inputs[3]?inputs[3].value:0)||0;
+    var qty=parseInt(inputs[4]?inputs[4].value:0)||0;
+    if(!name||qty<=0){skipped++;return;}
+    // Find existing product by SKU or name
+    var existing=null;
+    if(sku) existing=products.find(function(p){return p.sku&&p.sku.toLowerCase()===sku.toLowerCase();});
+    if(!existing) existing=products.find(function(p){return p.name.toLowerCase()===name.toLowerCase();});
+    if(existing){
+      // Update existing: add qty, update price if provided, save cost
+      existing.stock=Math.min(999,(existing.stock||0)+qty);
+      if(price>0)existing.price=price;
+      if(cost>0)existing.lastCost=cost;
+      if(sku)existing.sku=sku;
+      applied++;
+    } else {
+      // Create new product
+      var newProd={id:nextPid++,name:name,price:price||0,cat:'General',stock:qty,sku:sku||'',low:5,lastCost:cost||0};
+      products.push(newProd);
+      created++;
+    }
+  });
+  renderInv();buildInvCatFilter();buildPosCats();renderProducts();
+  saveState();
+  sMsg('recv-msg','Done: '+applied+' items updated, '+created+' new items created'+(skipped?' ('+skipped+' rows skipped)':''),'green');
+  setTimeout(function(){closeOv('ov-inv-recv');},2000);
+}
 function renderInv(){var q=$$('inv-q').value.toLowerCase();var cat=$$('inv-cat-f').value;var list=products.filter(function(p){return(!q||p.name.toLowerCase().indexOf(q)>=0||p.sku.toLowerCase().indexOf(q)>=0)&&(!cat||p.cat===cat);});var tb=$$('inv-table');if(!list.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:#888;padding:12px">No products found</td></tr>';return;}tb.innerHTML=list.map(function(p){var low=p.low>0&&p.stock<=p.low;return'<tr><td style="font-weight:600">'+p.name+(low?' <span class="badge b-red" style="font-size:10px">Low</span>':'')+'</td><td>'+C(p.price)+'</td><td>'+(p.stock>=999?'∞':p.stock)+'</td><td style="font-size:12px">'+p.cat+'</td><td style="font-family:monospace;font-size:12px">'+p.sku+'</td><td><button class="btn bg-amber btn-sm" onclick="openInvModal('+p.id+')" style="margin-right:3px">✎</button><button class="btn bg-red btn-sm" onclick="delProduct('+p.id+')">✕</button></td></tr>';}).join('');}
 function buildInvCatFilter(){var cats=[...new Set(products.map(function(p){return p.cat;}))];var sel=$$('inv-cat-f'),cur=sel.value;sel.innerHTML='<option value="">All categories</option>'+cats.map(function(c){return'<option'+(c===cur?' selected':'')+'>'+c+'</option>';}).join('');}
 var _invScanTimer=null;
@@ -2460,13 +2656,16 @@ function renderMembers(){
   tb.innerHTML=list.map(function(m){
     var isUnpaid=!m.paid;
     var hasUnpaidAddons=m.paid&&m.unpaidAddons&&m.unpaidAddons.length>0;
-    var pc=m.paid?(hasUnpaidAddons?'b-amber':'b-green'):'b-red';
-    var statusLabel=m.paid?(hasUnpaidAddons?'Add-on Unpaid':'Paid'):'Unpaid';
+    var isExpired=isMemberExpired(m);
+    var isInactive=m.active===false||isExpired;
+    var pc=isInactive?'b-gray':m.paid?(hasUnpaidAddons?'b-amber':'b-green'):'b-red';
+    var statusLabel=isInactive?'Inactive':m.paid?(hasUnpaidAddons?'Add-on Unpaid':'Paid'):'Unpaid';
     var addonsStr=m.addons&&m.addons.length?m.addons.join(', '):'';
-    return'<tr class="'+(isUnpaid?'unpaid-row':hasUnpaidAddons?'unpaid-row':'')+'" ondblclick="quickMemPay('+m.id+')" style="cursor:pointer" title="Double-click to pay in POS">'
-      +'<td><div style="font-weight:700">'+m.first+' '+m.last+'</div><div style="font-size:11px;color:#888">'+m.email+'</div></td>'
+    var spouseBadge=m.linkedSpouseId?'<span class="badge b-blue" style="font-size:9px;margin-left:3px">linked</span>':'';
+    return'<tr class="'+(isUnpaid&&!isInactive?'unpaid-row':'')+'" ondblclick="quickMemPay('+m.id+')" style="cursor:pointer" title="Double-click to pay in POS">'
+      +'<td><div style="font-weight:700">'+m.first+' '+m.last+spouseBadge+'</div><div style="font-size:11px;color:#888">'+m.email+'</div></td>'
       +'<td style="font-size:12px">'+m.type+(addonsStr?'<br><span style="font-size:10px;color:#666">+'+addonsStr+'</span>':'')+'</td>'
-      +'<td><span class="badge '+pc+'">'+statusLabel+'</span></td>'
+      +'<td><span class="badge '+pc+'">'+statusLabel+'</span>'+(isExpired?'<br><span style="font-size:10px;color:#A32D2D">Expired</span>':'')+'</td>'
       +'<td style="font-size:12px">'+(m.exp||'—')+'</td>'
       +'<td style="font-size:12px">'+C(m.dues)+'</td>'
       +'<td style="white-space:nowrap">'
@@ -2511,43 +2710,53 @@ function openMemModal(id){
   buildMemTypeSelect();buildAddonCheckboxes();
   if(id){
     var m=members.find(function(x){return x.id===id;});
-    $$('m-first').value=m.first;$$('m-last').value=m.last;$$('m-phone').value=m.phone;$$('m-email').value=m.email;$$('m-addr').value=m.addr;
-    $$('m-type').value=m.type;$$('m-exp').value=m.exp||'';$$('m-spouse').value=m.spouse||'';$$('m-family').value=m.family||'';$$('m-dues').value=m.dues||'';
+    $$('m-first').value=m.first;$$('m-last').value=m.last;$$('m-phone').value=m.phone||'';$$('m-email').value=m.email||'';$$('m-addr').value=m.addr||'';
+    $$('m-type').value=m.type;$$('m-exp').value=m.exp||'';$$('m-family').value=m.family||'';$$('m-dues').value=m.dues||'';
     if(CFG.memExpiry)$$('m-exp').value=CFG.memExpiry;
-    // Check addons
     document.querySelectorAll('.m-addon').forEach(function(cb){cb.checked=m.addons&&m.addons.indexOf(cb.value)>=0;});
+    // Clear spouse fields in edit mode
+    ['m-sp-first','m-sp-last','m-sp-phone','m-sp-email'].forEach(function(i){if($$(i))$$(i).value='';});
   } else {
-    ['m-first','m-last','m-phone','m-email','m-addr','m-spouse','m-family'].forEach(function(iid){$$(iid).value='';});
+    ['m-first','m-last','m-phone','m-email','m-addr','m-family'].forEach(function(iid){$$(iid).value='';});
+    ['m-sp-first','m-sp-last','m-sp-phone','m-sp-email'].forEach(function(i){if($$(i))$$(i).value='';});
     $$('m-type').value=memTypes[0]?memTypes[0].name:'';
     $$('m-exp').value=CFG.memExpiry||'';
     $$('m-dues').value='';
     document.querySelectorAll('.m-addon').forEach(function(cb){cb.checked=false;});
     calcMemberDues();
   }
+  onMemTypeChange(); // show/hide spouse section based on type
   $$('m-msg').innerHTML='';openOv('ov-mem');
 }
 function saveMember(){
   var first=$$('m-first').value.trim(),last=$$('m-last').value.trim();if(!first||!last){sMsg('m-msg','First and last name required','red');return;}
   var addons=[...document.querySelectorAll('.m-addon:checked')].map(function(c){return c.value;});
+  var type=$$('m-type').value;
+  var isCouple=type.toLowerCase().indexOf('couple')>=0||type.toLowerCase().indexOf('family')>=0;
   if(editMemId){
     var m=members.find(function(x){return x.id===editMemId;});
     var cr=m.credit,crH=m.creditH,wasPaid=m.paid,oldAddons=m.addons||[];
-    // Find newly added addons that weren't on the member before
     var newAddons=addons.filter(function(a){return oldAddons.indexOf(a)<0;});
-    var data={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:$$('m-type').value,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',spouse:$$('m-spouse').value.trim(),family:$$('m-family').value.trim(),dues:parseFloat($$('m-dues').value)||0,isMember:true};
+    var data={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:parseFloat($$('m-dues').value)||0,isMember:true,active:true};
     Object.assign(m,data);
     m.credit=cr;m.creditH=crH;
-    // If member was paid, keep them paid — only mark unpaid addons separately
-    if(wasPaid){
-      m.paid=true;
-      m.unpaidAddons=newAddons.length?newAddons:[];
-    } else {
-      m.paid=false;
-      m.unpaidAddons=[];
-    }
+    if(wasPaid){m.paid=true;m.unpaidAddons=newAddons.length?newAddons:[];}
+    else{m.paid=false;m.unpaidAddons=[];}
   } else {
-    var data2={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:$$('m-type').value,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',spouse:$$('m-spouse').value.trim(),family:$$('m-family').value.trim(),dues:parseFloat($$('m-dues').value)||0,paid:false,isMember:true,unpaidAddons:[]};
-    members.push(Object.assign({id:nextMid++,credit:0,creditH:[]},data2));
+    var spFirst=$$('m-sp-first')?$$('m-sp-first').value.trim():'';
+    var spLast=$$('m-sp-last')?$$('m-sp-last').value.trim():'';
+    var dues=parseFloat($$('m-dues').value)||0;
+    var data2={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:dues,paid:false,isMember:true,unpaidAddons:[],active:true};
+    var leadId=nextMid++;
+    members.push(Object.assign({id:leadId,credit:0,creditH:[],linkedSpouseId:null},data2));
+    // Create spouse membership if couple/family and spouse name provided
+    if(isCouple&&spFirst&&spLast){
+      var spouseId=nextMid++;
+      var spData={first:spFirst,last:spLast,phone:$$('m-sp-phone')?$$('m-sp-phone').value.trim():'',email:$$('m-sp-email')?$$('m-sp-email').value.trim():'',addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:0,paid:false,isMember:true,unpaidAddons:[],active:true,linkedSpouseId:leadId,isSpouseOf:leadId};
+      members.push(Object.assign({id:spouseId,credit:0,creditH:[]},spData));
+      members.find(function(x){return x.id===leadId;}).linkedSpouseId=spouseId;
+      sMsg('m-msg','Membership created for '+first+' '+last+' and spouse '+spFirst+' '+spLast,'green');
+    }
   }
   closeOv('ov-mem');renderMembers();buildPosMemberSelect();renderCrAll();
   saveState();
@@ -2577,7 +2786,48 @@ function applyGlobalExpiry(){
 // REPORTS
 // ============================================================
 function getSalesFor(period,dateEl){var now=new Date();function sd(ts,str){return new Date(ts).toDateString()===str;}if(period==='today')return sales.filter(function(s){return sd(s.ts,now.toDateString());});if(period==='yesterday')return sales.filter(function(s){return sd(s.ts,new Date(now-86400000).toDateString());});if(period==='week'){var wd=now.getDay(),start=new Date(now);start.setDate(now.getDate()-wd);start.setHours(0,0,0,0);var end=new Date(start);end.setDate(start.getDate()+6);end.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=start&&d<=end;});}if(period==='last-week'){var ref=new Date(now);ref.setDate(now.getDate()-7);var wd2=ref.getDay(),s2=new Date(ref);s2.setDate(ref.getDate()-wd2);s2.setHours(0,0,0,0);var e2=new Date(s2);e2.setDate(s2.getDate()+6);e2.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=s2&&d<=e2;});}if(period==='month')return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});if(period==='last-month'){var lm=now.getMonth()===0?11:now.getMonth()-1,ly=now.getMonth()===0?now.getFullYear()-1:now.getFullYear();return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===lm&&d.getFullYear()===ly;});}if(period==='custom'){var cd=$$(dateEl)?$$(dateEl).value:'';if(!cd)return[];var target=new Date(cd+'T12:00:00').toDateString();return sales.filter(function(s){return new Date(s.ts).toDateString()===target;});}return sales;}
-function runReport(){var type=$$('rpt-type').value,pa=$$('rpt-a').value,isComp=type==='comparison';$$('rpt-b-wrap').style.display=isComp?'block':'none';$$('rpt-a-date-wrap').style.display=pa==='custom'?'block':'none';var pb=$$('rpt-b')?$$('rpt-b').value:'yesterday';$$('rpt-b-date-wrap').style.display=(isComp&&pb==='custom')?'block':'none';var sA=getSalesFor(pa,'rpt-a-date');var html='';if(type==='summary'){var rev=sA.reduce(function(a,s){return a+s.total;},0);var refAmt=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">Transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Gross revenue</div><div class="val">'+C(rev)+'</div></div><div class="stat"><div class="lbl">Refunds</div><div class="val">'+C(Math.abs(refAmt))+'</div></div><div class="stat"><div class="lbl">Net revenue</div><div class="val">'+C(rev+refAmt)+'</div></div></div>';}else if(type==='rounds'){var bkArr=Object.values(bookings);var r18=bkArr.filter(function(b){return b.holes==='18';}).reduce(function(a,b){return a+parseInt(b.players);},0);var r9=bkArr.filter(function(b){return b.holes==='9';}).reduce(function(a,b){return a+parseInt(b.players);},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">18-hole rounds</div><div class="val">'+r18+'</div></div><div class="stat"><div class="lbl">9-hole rounds</div><div class="val">'+r9+'</div></div><div class="stat"><div class="lbl">Total players</div><div class="val">'+(r18+r9)+'</div></div><div class="stat"><div class="lbl">Bookings</div><div class="val">'+Object.keys(bookings).length+'</div></div></div>';}else if(type==='category'){var cats={};sA.forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)cats[e[0]]=(cats[e[0]]||0)+e[1];});});var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];});html=sorted.length?sorted.map(function(e){var max=Math.max.apply(null,sorted.map(function(x){return x[1];}));var pct=Math.round(e[1]/max*100);return'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px"><span>'+e[0]+'</span><span style="font-weight:700">'+C(e[1])+'</span></div><div class="pbar" style="height:8px"><div class="pfill" style="width:'+pct+'%;background:#185FA5"></div></div></div>';}).join(''):'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='method'){var methods={};sA.filter(function(s){return s.total>0;}).forEach(function(s){methods[s.method]=(methods[s.method]||0)+s.total;});html=Object.keys(methods).length?'<table><thead><tr><th>Method</th><th>Revenue</th><th>Count</th></tr></thead><tbody>'+Object.entries(methods).map(function(e){return'<tr><td><span class="badge b-blue">'+e[0]+'</span></td><td style="font-weight:700">'+C(e[1])+'</td><td>'+sA.filter(function(s){return s.method===e[0]&&s.total>0;}).length+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='comparison'){var sB=getSalesFor($$('rpt-b').value,'rpt-b-date');var revA=sA.reduce(function(a,s){return a+Math.max(0,s.total);},0);var revB=sB.reduce(function(a,s){return a+Math.max(0,s.total);},0);var diff=revA-revB,pctChg=revB>0?((diff/revB)*100).toFixed(1):null;html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px"><div class="stat"><div class="lbl">Period A — transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period B — transactions</div><div class="val">'+sB.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period A — revenue</div><div class="val">'+C(revA)+'</div></div><div class="stat"><div class="lbl">Period B — revenue</div><div class="val">'+C(revB)+'</div></div></div><div class="msg '+(diff>=0?'m-green':'m-red')+'">Net change: <strong>'+(diff>=0?'+':'')+C(diff)+'</strong>'+(pctChg?' ('+(diff>=0?'+':'')+pctChg+'%)':'')+'</div>';}else if(type==='membership'){var ms=sA.filter(function(s){return s.items.toLowerCase().indexOf('membership')>=0;});html=ms.length?'<table><thead><tr><th>Time</th><th>Member</th><th>Method</th><th>Amount</th></tr></thead><tbody>'+ms.map(function(s){return'<tr><td>'+s.time+'</td><td style="font-size:12px">'+s.items+'</td><td><span class="badge b-blue">'+s.method+'</span></td><td style="font-weight:700">'+C(s.total)+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No membership payments in selected period.</div>';}$$('rpt-output').innerHTML=html;}
+function runReport(){var type=$$('rpt-type').value,pa=$$('rpt-a').value,isComp=type==='comparison';$$('rpt-b-wrap').style.display=isComp?'block':'none';$$('rpt-a-date-wrap').style.display=pa==='custom'?'block':'none';var pb=$$('rpt-b')?$$('rpt-b').value:'yesterday';$$('rpt-b-date-wrap').style.display=(isComp&&pb==='custom')?'block':'none';
+  // Special reports handled separately
+  if(type==='cash_reconciliation'){runCashReconReport();return;}
+  if(type==='inventory'){runInventoryReport();return;}
+  var sA=getSalesFor(pa,'rpt-a-date');var html='';if(type==='summary'){var rev=sA.reduce(function(a,s){return a+s.total;},0);var refAmt=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">Transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Gross revenue</div><div class="val">'+C(rev)+'</div></div><div class="stat"><div class="lbl">Refunds</div><div class="val">'+C(Math.abs(refAmt))+'</div></div><div class="stat"><div class="lbl">Net revenue</div><div class="val">'+C(rev+refAmt)+'</div></div></div>';}else if(type==='rounds'){var bkArr=Object.values(bookings);var r18=bkArr.filter(function(b){return b.holes==='18';}).reduce(function(a,b){return a+parseInt(b.players);},0);var r9=bkArr.filter(function(b){return b.holes==='9';}).reduce(function(a,b){return a+parseInt(b.players);},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">18-hole rounds</div><div class="val">'+r18+'</div></div><div class="stat"><div class="lbl">9-hole rounds</div><div class="val">'+r9+'</div></div><div class="stat"><div class="lbl">Total players</div><div class="val">'+(r18+r9)+'</div></div><div class="stat"><div class="lbl">Bookings</div><div class="val">'+Object.keys(bookings).length+'</div></div></div>';}else if(type==='category'){var cats={};sA.forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)cats[e[0]]=(cats[e[0]]||0)+e[1];});});var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];});html=sorted.length?sorted.map(function(e){var max=Math.max.apply(null,sorted.map(function(x){return x[1];}));var pct=Math.round(e[1]/max*100);return'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px"><span>'+e[0]+'</span><span style="font-weight:700">'+C(e[1])+'</span></div><div class="pbar" style="height:8px"><div class="pfill" style="width:'+pct+'%;background:#185FA5"></div></div></div>';}).join(''):'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='method'){var methods={};sA.filter(function(s){return s.total>0;}).forEach(function(s){methods[s.method]=(methods[s.method]||0)+s.total;});html=Object.keys(methods).length?'<table><thead><tr><th>Method</th><th>Revenue</th><th>Count</th></tr></thead><tbody>'+Object.entries(methods).map(function(e){return'<tr><td><span class="badge b-blue">'+e[0]+'</span></td><td style="font-weight:700">'+C(e[1])+'</td><td>'+sA.filter(function(s){return s.method===e[0]&&s.total>0;}).length+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='comparison'){var sB=getSalesFor($$('rpt-b').value,'rpt-b-date');var revA=sA.reduce(function(a,s){return a+Math.max(0,s.total);},0);var revB=sB.reduce(function(a,s){return a+Math.max(0,s.total);},0);var diff=revA-revB,pctChg=revB>0?((diff/revB)*100).toFixed(1):null;html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px"><div class="stat"><div class="lbl">Period A — transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period B — transactions</div><div class="val">'+sB.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period A — revenue</div><div class="val">'+C(revA)+'</div></div><div class="stat"><div class="lbl">Period B — revenue</div><div class="val">'+C(revB)+'</div></div></div><div class="msg '+(diff>=0?'m-green':'m-red')+'">Net change: <strong>'+(diff>=0?'+':'')+C(diff)+'</strong>'+(pctChg?' ('+(diff>=0?'+':'')+pctChg+'%)':'')+'</div>';}else if(type==='membership'){var ms=sA.filter(function(s){return s.items.toLowerCase().indexOf('membership')>=0;});html=ms.length?'<table><thead><tr><th>Time</th><th>Member</th><th>Method</th><th>Amount</th></tr></thead><tbody>'+ms.map(function(s){return'<tr><td>'+s.time+'</td><td style="font-size:12px">'+s.items+'</td><td><span class="badge b-blue">'+s.method+'</span></td><td style="font-weight:700">'+C(s.total)+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No membership payments in selected period.</div>';}$$('rpt-output').innerHTML=html;}
+
+function runCashReconReport(){
+  var isAdm=!currentUser||currentUser.role==='admin'||currentUser.role==='manager';
+  if(!isAdm){$$('rpt-output').innerHTML='<div class="msg m-red">⛔ Cash Reconciliation is restricted to Admins and Managers.</div>';return;}
+  if(!eodHistory||!eodHistory.length){$$('rpt-output').innerHTML='<div style="color:#888;font-size:13px">No end-of-day records found. Close a day first.</div>';return;}
+  var html='<table><thead><tr><th>Date</th><th>Closed by</th><th>Transactions</th><th>Revenue</th><th>Cash sales</th><th>Drawer counted</th><th>Difference</th></tr></thead><tbody>';
+  eodHistory.slice().reverse().forEach(function(r){
+    var d=r.drawerCounted!==null&&r.drawerCounted!==undefined?r.drawerCounted-r.cashSales:null;
+    html+='<tr>'
+      +'<td style="font-size:12px">'+r.date+'<br><span style="color:#888;font-size:10px">'+r.closedAt+'</span></td>'
+      +'<td style="font-size:12px">'+r.closedBy+'</td>'
+      +'<td style="text-align:center">'+r.transactions+'</td>'
+      +'<td style="font-weight:700">'+C(r.gross||r.cashSales)+'</td>'
+      +'<td style="font-weight:700">'+C(r.cashSales)+'</td>'
+      +'<td style="font-weight:700">'+(r.drawerCounted!=null?C(r.drawerCounted):'Not counted')+'</td>'
+      +'<td><span class="badge '+(d===null?'b-gray':Math.abs(d)<0.01?'b-green':d>0?'b-blue':'b-red')+'">'
+      +(d===null?'—':Math.abs(d)<0.01?'✓ Balanced':d>0?'Over '+C(d):'Short '+C(Math.abs(d)))
+      +'</span></td></tr>';
+  });
+  html+='</tbody></table>';
+  $$('rpt-output').innerHTML=html;
+}
+
+function runInventoryReport(){
+  var html='<div style="font-size:12px;color:#666;margin-bottom:8px">Fill in the Actual Count column before printing. Last Cost shows the most recent received shipment cost.</div>'
+    +'<table><thead><tr><th>Item</th><th>Category</th><th style="width:80px">On Hand</th><th style="width:90px">Actual Count</th><th style="width:90px">Last Cost</th></tr></thead><tbody>'
+    +products.map(function(p){
+      return'<tr><td style="font-size:12px;font-weight:600">'+p.name+'<br><span style="font-size:10px;color:#888;font-weight:400">'+p.sku+'</span></td>'
+        +'<td style="font-size:12px">'+p.cat+'</td>'
+        +'<td style="text-align:center;font-weight:700">'+(p.stock>=999?'∞':p.stock)+'</td>'
+        +'<td><input type="number" min="0" placeholder="Count" style="width:74px;padding:4px 6px;font-size:12px;border:1px solid #ddd;border-radius:5px" data-pid="'+p.id+'"></td>'
+        +'<td style="font-size:12px;color:#666">'+(p.lastCost?C(p.lastCost):'—')+'</td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table>';
+  $$('rpt-output').innerHTML=html;
+}
 function updateDrawer(){var cashSales=sales.filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);var opening=parseFloat($$('drawer-open')?$$('drawer-open').value:0)||0;if($$('r-cash'))$$('r-cash').textContent=C(cashSales);if($$('r-expected'))$$('r-expected').textContent=C(opening+cashSales);}
 function calcDrawer(){var opening=parseFloat($$('drawer-open').value)||0;var closing=parseFloat($$('drawer-close').value)||0;var cashSales=sales.filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);var expected=opening+cashSales,diff=closing-expected;$$('drawer-result').innerHTML='<div class="msg '+(Math.abs(diff)<0.01?'m-green':diff>0?'m-blue':'m-red')+'">Opening: '+C(opening)+' + Cash sales: '+C(cashSales)+' = Expected: '+C(expected)+'<br>Counted: '+C(closing)+' &nbsp;·&nbsp; <strong>'+(diff>=0?'Over':'Short')+' by: '+C(Math.abs(diff))+'</strong></div>';}
 function _buildDetailedReportHTML(sA, periodLabel, type){
@@ -2781,7 +3031,7 @@ function initApp(){
   buildInvCatFilter();renderInv();
   renderCrAll();renderGCTable();
   renderCourseFees();renderTournaments();renderTournTable();
-  renderPosCourseFees();renderPosTournaments();
+  renderPosCourseFees();renderPosTournaments();renderPosAddonTiles();
   buildMemTypeFilter();buildMemTypeSelect();buildAddonCheckboxes();
   checkExpirations();renderMembers();
   updateRefundUI();
@@ -2813,6 +3063,7 @@ function _buildState(){
     giftCerts:giftCerts, discounts:discounts, memTypes:memTypes,
     addonTypes:addonTypes, courseFees:courseFees, tournaments:tournaments,
     CFG:CFG, nextMid:nextMid, nextPid:nextPid, nextTid:nextTid, nextCfId:nextCfId,
+    eodHistory:eodHistory,
     users:users.filter(function(u){return u.role!=='admin';}),
     savedAt:Date.now()
   };
@@ -2830,6 +3081,7 @@ function _applyState(s){
   if(s.addonTypes)addonTypes=s.addonTypes;
   if(s.courseFees)courseFees=s.courseFees;
   if(s.tournaments)tournaments=s.tournaments;
+  if(s.eodHistory)eodHistory=s.eodHistory;
   if(s.CFG){
     // Deep merge CFG — preserve all saved values including nested prices
     Object.keys(s.CFG).forEach(function(k){
@@ -3366,11 +3618,27 @@ function openEOD(){
     +'<tr><td>Member credit</td><td style="font-weight:700;text-align:right">'+C(memS)+'</td></tr>'
     +'<tr><td style="color:#791F1F">Refunds</td><td style="color:#791F1F;font-weight:700;text-align:right">-'+C(refAmt)+'</td></tr>'
     +'</tbody></table></div>'
-    +'<div class="eod-section"><h4>Cash Drawer Reconciliation</h4>'
-    +'<div class="fg fg2" style="margin-bottom:8px">'
-    +'<div><label>Opening float ($)</label><input type="number" id="eod-open" value="'+openAmt.toFixed(2)+'" step="0.01" oninput="eodCalcD()"></div>'
-    +'<div><label>Counted closing ($)</label><input type="number" id="eod-close" placeholder="0.00" step="0.01" oninput="eodCalcD()"></div>'
-    +'</div><div id="eod-drawer-res"></div></div>'
+    +'<div class="eod-section"><h4>💵 Cash Drawer Count</h4>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+    +'<div><div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px">Bills</div>'
+    +'<div style="display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px 10px;font-size:13px">'
+    +'<span>$100</span><input type="number" id="d-100" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-100" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>$50</span><input type="number" id="d-50" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-50" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>$20</span><input type="number" id="d-20" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-20" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>$10</span><input type="number" id="d-10" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-10" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>$5</span><input type="number" id="d-5" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-5" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>$1</span><input type="number" id="d-1" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-1" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'</div></div>'
+    +'<div><div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px">Coins</div>'
+    +'<div style="display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px 10px;font-size:13px">'
+    +'<span>$1 coin</span><input type="number" id="d-c100" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c100" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>50¢</span><input type="number" id="d-c50" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c50" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>25¢</span><input type="number" id="d-c25" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c25" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>10¢</span><input type="number" id="d-c10" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c10" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>5¢</span><input type="number" id="d-c5" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c5" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'<span>1¢</span><input type="number" id="d-c1" min="0" value="0" oninput="eodCalcD()" style="width:70px;padding:5px 7px;font-size:13px"><span id="dt-c1" style="color:#666;font-size:12px;width:50px;text-align:right">$0</span>'
+    +'</div></div></div>'
+    +'<div id="eod-drawer-res" style="margin-top:12px"></div></div>'
     +'<div class="eod-section"><h4>Revenue by Category</h4>'
     +Object.entries(catT).sort(function(a,b){return b[1]-a[1];}).map(function(e){return'<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px"><span>'+e[0]+'</span><strong>'+C(e[1])+'</strong></div>';}).join('')+'</div>'
     +(lowItems.length?'<div class="eod-section" style="border-color:#A32D2D"><h4 style="color:#791F1F">Low Stock Items</h4>'+lowItems.map(function(p){return'<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>'+p.name+'</span><span class="low-stock-badge">'+p.stock+' left</span></div>';}).join('')+'</div>':'')
@@ -3380,13 +3648,31 @@ function openEOD(){
   $$('eod-body').innerHTML=html;
   openOv('ov-eod');
 }
+var _eodDenomCount = null; // stores the denomination count for the cash report
 function eodCalcD(){
-  var open=parseFloat(($$('eod-open')||{value:0}).value)||0;
-  var close=parseFloat(($$('eod-close')||{value:0}).value)||0;
-  var cashS=getSalesFor('today','').filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
-  var exp=open+cashS,diff=close-exp;
-  var res=$$('eod-drawer-res');if(!res)return;
-  res.innerHTML='<div class="msg '+(Math.abs(diff)<0.01?'m-green':diff>0?'m-blue':'m-red')+'">Opening: '+C(open)+' + Cash sales: '+C(cashS)+' = Expected: '+C(exp)+'<br>Counted: '+C(close)+' &nbsp;&middot;&nbsp; <strong>'+(diff>=0?'Over':'Short')+' by '+C(Math.abs(diff))+'</strong></div>';
+  var denoms=[
+    {id:'d-100',val:100},{id:'d-50',val:50},{id:'d-20',val:20},
+    {id:'d-10',val:10},{id:'d-5',val:5},{id:'d-1',val:1},
+    {id:'d-c100',val:1},{id:'d-c50',val:0.50},{id:'d-c25',val:0.25},
+    {id:'d-c10',val:0.10},{id:'d-c5',val:0.05},{id:'d-c1',val:0.01}
+  ];
+  var total=0;
+  var counts={};
+  denoms.forEach(function(d){
+    var qty=parseInt((document.getElementById(d.id)||{value:0}).value)||0;
+    var subtotal=qty*d.val;
+    total+=subtotal;
+    counts[d.id]=qty;
+    var dtEl=document.getElementById('dt-'+d.id.replace('d-',''));
+    if(dtEl) dtEl.textContent='$'+subtotal.toFixed(2);
+  });
+  _eodDenomCount={counts:counts,total:total};
+  // Show only the running drawer total — no comparison to expected cash
+  var res=document.getElementById('eod-drawer-res');if(!res)return;
+  res.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;background:#f8f8f4;border-radius:8px;padding:10px 14px;font-size:14px;margin-top:4px">'
+    +'<span style="color:#666">Drawer total counted</span>'
+    +'<strong style="font-size:18px">'+C(total)+'</strong>'
+    +'</div>';
 }
 function printEOD(){
   var b=$$('eod-body').innerHTML;
@@ -3398,9 +3684,25 @@ function printEOD(){
 }
 function closeAndClearDay(){
   if(!confirm("Close the day and clear today's sales log?"))return;
+  // Save EOD record with denomination count for reports
+  var cashS=getSalesFor('today','').filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+  var gross=getSalesFor('today','').filter(function(s){return s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+  var eodRecord={
+    date:todayStr(),
+    closedAt:new Date().toLocaleString(),
+    closedBy:currentUser?currentUser.name:'Unknown',
+    gross:gross,
+    cashSales:cashS,
+    drawerCounted:_eodDenomCount?_eodDenomCount.total:null,
+    denomCounts:_eodDenomCount?_eodDenomCount.counts:null,
+    transactions:getSalesFor('today','').filter(function(s){return s.total>0;}).length
+  };
+  if(!eodHistory) eodHistory=[];
+  eodHistory.push(eodRecord);
   var today=new Date().toDateString();
   sales=sales.filter(function(s){return new Date(s.ts).toDateString()!==today;});
   if($$('drawer-open'))$$('drawer-open').value='0.00';
+  _eodDenomCount=null;
   updateStats();renderSalesLog();updateDrawer();saveState();
   closeOv('ov-eod');alert('Day closed. Sales log cleared.');
 }
