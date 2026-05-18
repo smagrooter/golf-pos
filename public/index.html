@@ -333,6 +333,7 @@ tr.unpaid-row{background:#FFF0F0}
           <button class="pay-method-btn" id="pmb-credit" onclick="setPosPayMethod('credit')"><span class="pay-icon">💳</span><span>Card</span></button>
           <button class="pay-method-btn" id="pmb-sc" onclick="setPosPayMethod('store_credit')"><span class="pay-icon">🏦</span><span>Store Credit</span></button>
           <button class="pay-method-btn" id="pmb-gc" onclick="setPosPayMethod('gift_cert')"><span class="pay-icon">🎁</span><span>Gift Cert</span></button>
+          <button class="pay-method-btn" id="pmb-check" onclick="setPosPayMethod('check')" style="grid-column:1/-1"><span class="pay-icon">🖊</span><span>Check</span></button>
         </div>
 
         <!-- Cash tendered row -->
@@ -340,6 +341,13 @@ tr.unpaid-row{background:#FFF0F0}
           <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Cash tendered ($)</label>
           <input type="number" id="cash-tendered" placeholder="0.00" step="0.01" oninput="calcChange()" style="width:110px;padding:6px 9px">
           <span id="change-due" style="font-size:13px;font-weight:700;color:#27500A"></span>
+        </div>
+
+        <!-- Check number row -->
+        <div id="pmb-check-row" style="display:none;align-items:center;gap:8px;margin-bottom:8px">
+          <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Check #</label>
+          <input id="check-number" placeholder="e.g. 1042" style="width:130px;padding:6px 9px;font-family:monospace;font-size:13px" oninput="checkCompleteBtn()">
+          <span style="font-size:11px;color:#888">Record check number for your records</span>
         </div>
 
         <!-- Store credit row -->
@@ -413,6 +421,7 @@ tr.unpaid-row{background:#FFF0F0}
             <option value="">All</option>
             <option value="cash">Cash</option>
             <option value="card">Card</option>
+            <option value="check">Check</option>
             <option value="credit">Store credit</option>
             <option value="gift">Gift cert</option>
           </select>
@@ -1316,11 +1325,15 @@ function checkExpirations(){
 }
 function onMemTypeChange(){
   calcMemberDues();
-  var type=$$('m-type').value||'';
+  var type=($$('m-type')?$$('m-type').value:'')||'';
   var spSection=$$('m-spouse-section');
   if(spSection){
     var showSpouse=type.toLowerCase().indexOf('couple')>=0||type.toLowerCase().indexOf('family')>=0;
     spSection.style.display=showSpouse?'block':'none';
+    // Clear spouse fields when switching away from couple/family
+    if(!showSpouse){
+      ['m-sp-first','m-sp-last','m-sp-phone','m-sp-email'].forEach(function(i){if($$(i))$$(i).value='';});
+    }
   }
 }
 
@@ -1733,6 +1746,10 @@ function checkCompleteBtn(){
   else if(splits.length>0){
     var paid=splits.reduce(function(a,s){return a+s.amt;},0);
     ready=paid>=tot-0.001;
+  } else if(_posPayMethod==='check'){
+    var chkNum=$$('check-number')?$$('check-number').value.trim():'';
+    ready=chkNum.length>0;
+    if(tot===0&&cart.length>0)ready=true;
   } else {
     var tendered=parseFloat($$('cash-tendered').value)||0;
     ready=tendered>=tot-0.001&&tendered>0;
@@ -1794,10 +1811,23 @@ function completeSale(){
   });
   cart.forEach(function(x){if(x.productId){var p=products.find(function(pp){return pp.id===x.productId;});if(p&&p.stock<999)p.stock=Math.max(0,p.stock-x.qty);}});
   var method='cash';
-  if($$('pos-pay')&&$$('pos-pay').value&&!splits.length) method=$$('pos-pay').value;
+  if(_posPayMethod==='check'){
+    var chkNum=$$('check-number')?$$('check-number').value.trim():'';
+    method='check'+(chkNum?' #'+chkNum:'');
+    if($$('check-number'))$$('check-number').value='';
+  } else if(_posPayMethod==='store_credit'){
+    method='store_credit';
+  } else if(_posPayMethod==='gift_cert'){
+    method='gift_cert';
+  } else if(_posPayMethod==='credit'){
+    method='card';
+  } else {
+    method='cash';
+  }
+  if($$('pos-pay')&&$$('pos-pay').value&&!splits.length&&_posPayMethod==='cash') method=$$('pos-pay').value;
   if(splits.length){
     var splitDesc=splits.map(function(s){
-      var label={cash:'Cash',card:'Card',credit:'Store Credit',gift:'Gift Cert'}[s.type]||s.type;
+      var label={cash:'Cash',card:'Card',credit:'Store Credit',gift:'Gift Cert',check:'Check'}[s.type]||s.type;
       return label+' '+C(s.amt);
     }).join(' + ');
     method='Split: '+splitDesc;
@@ -1824,6 +1854,7 @@ function updateStats(){
   var yRev=yesterdaySales.reduce(function(a,s){return a+s.total;},0);
   var cashTotal=todaySales.filter(function(s){return s.method==='cash';}).reduce(function(a,s){return a+s.total;},0);
   var cardTotal=todaySales.filter(function(s){return s.method&&(s.method.indexOf('card')>=0||s.method.indexOf('Card')>=0);}).reduce(function(a,s){return a+s.total;},0);
+  var checkTotal=todaySales.filter(function(s){return s.method&&s.method.indexOf('check')>=0;}).reduce(function(a,s){return a+s.total;},0);
   var sc=$$('stat-count'),sr=$$('stat-rev');
   if(sc)sc.textContent=count;
   if(sr){sr.textContent=C(rev);sr.style.fontSize=rev>=1000?'15px':'22px';}
@@ -2746,16 +2777,27 @@ function saveMember(){
     var spFirst=$$('m-sp-first')?$$('m-sp-first').value.trim():'';
     var spLast=$$('m-sp-last')?$$('m-sp-last').value.trim():'';
     var dues=parseFloat($$('m-dues').value)||0;
-    var data2={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:dues,paid:false,isMember:true,unpaidAddons:[],active:true};
+    var data2={first:first,last:last,phone:$$('m-phone').value.trim(),email:$$('m-email').value.trim(),addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:dues,paid:false,isMember:true,unpaidAddons:[],active:true,linkedSpouseId:null};
     var leadId=nextMid++;
-    members.push(Object.assign({id:leadId,credit:0,creditH:[],linkedSpouseId:null},data2));
+    members.push(Object.assign({id:leadId,credit:0,creditH:[]},data2));
     // Create spouse membership if couple/family and spouse name provided
     if(isCouple&&spFirst&&spLast){
       var spouseId=nextMid++;
-      var spData={first:spFirst,last:spLast,phone:$$('m-sp-phone')?$$('m-sp-phone').value.trim():'',email:$$('m-sp-email')?$$('m-sp-email').value.trim():'',addr:$$('m-addr').value.trim(),type:type,addons:addons,exp:$$('m-exp').value||CFG.memExpiry||'',family:$$('m-family').value.trim(),dues:0,paid:false,isMember:true,unpaidAddons:[],active:true,linkedSpouseId:leadId,isSpouseOf:leadId};
+      var spData={first:spFirst,last:spLast,
+        phone:$$('m-sp-phone')?$$('m-sp-phone').value.trim():'',
+        email:$$('m-sp-email')?$$('m-sp-email').value.trim():'',
+        addr:$$('m-addr').value.trim(),type:type,addons:addons,
+        exp:$$('m-exp').value||CFG.memExpiry||'',
+        family:$$('m-family').value.trim(),dues:0,paid:false,
+        isMember:true,unpaidAddons:[],active:true,
+        linkedSpouseId:leadId,isSpouseOf:leadId};
       members.push(Object.assign({id:spouseId,credit:0,creditH:[]},spData));
       members.find(function(x){return x.id===leadId;}).linkedSpouseId=spouseId;
-      sMsg('m-msg','Membership created for '+first+' '+last+' and spouse '+spFirst+' '+spLast,'green');
+      closeOv('ov-mem');
+      renderMembers();buildPosMemberSelect();renderCrAll();
+      saveState();
+      alert('✓ Two memberships created:\n• '+first+' '+last+'\n• '+spFirst+' '+spLast+'\n\nBoth are linked — paying either one marks both as paid.');
+      return;
     }
   }
   closeOv('ov-mem');renderMembers();buildPosMemberSelect();renderCrAll();
@@ -3599,7 +3641,8 @@ function openEOD(){
   var refAmt=Math.abs(td.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0));
   var txn=td.filter(function(s){return s.total>0;}).length;
   var cashS=td.filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
-  var cardS=td.filter(function(s){return s.method==='card (CardPointe)'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+  var cardS=td.filter(function(s){return s.method&&s.method.indexOf('card')>=0&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+  var checkS=td.filter(function(s){return s.method&&s.method.indexOf('check')>=0&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
   var splitS=td.filter(function(s){return s.method==='split'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
   var memS=td.filter(function(s){return s.method==='member_credit'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);
   var catT={};td.filter(function(s){return s.total>0;}).forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)catT[e[0]]=(catT[e[0]]||0)+e[1];});});
@@ -3613,7 +3656,8 @@ function openEOD(){
     +'</div></div>'
     +'<div class="eod-section"><h4>Payment Breakdown</h4><table><tbody>'
     +'<tr><td>Cash</td><td style="font-weight:700;text-align:right">'+C(cashS)+'</td></tr>'
-    +'<tr><td>Card (CardPointe)</td><td style="font-weight:700;text-align:right">'+C(cardS)+'</td></tr>'
+    +'<tr><td>Card</td><td style="font-weight:700;text-align:right">'+C(cardS)+'</td></tr>'
+    +'<tr><td>Check</td><td style="font-weight:700;text-align:right">'+C(checkS)+'</td></tr>'
     +'<tr><td>Split payments</td><td style="font-weight:700;text-align:right">'+C(splitS)+'</td></tr>'
     +'<tr><td>Member credit</td><td style="font-weight:700;text-align:right">'+C(memS)+'</td></tr>'
     +'<tr><td style="color:#791F1F">Refunds</td><td style="color:#791F1F;font-weight:700;text-align:right">-'+C(refAmt)+'</td></tr>'
@@ -4608,18 +4652,16 @@ loadState = function(){
 var _posPayMethod = 'cash';
 function setPosPayMethod(method){
   _posPayMethod = method;
-  // Update button highlights using new pay-on class
-  var ids={cash:'pmb-cash',credit:'pmb-credit',store_credit:'pmb-sc',gift_cert:'pmb-gc'};
+  var ids={cash:'pmb-cash',credit:'pmb-credit',store_credit:'pmb-sc',gift_cert:'pmb-gc',check:'pmb-check'};
   Object.keys(ids).forEach(function(m){
     var b=$$(ids[m]);if(!b)return;
     b.classList.toggle('pay-on',m===method);
   });
-  // Show/hide sub-rows
-  var cashRow=$$('pmb-cash-row'),scRow=$$('pmb-sc-row'),gcRow=$$('pmb-gc-row');
-  if(cashRow) cashRow.style.display=method==='cash'?'flex':'none';
-  if(scRow)   scRow.style.display=method==='store_credit'?'block':'none';
-  if(gcRow)   gcRow.style.display=method==='gift_cert'?'block':'none';
-  // Populate store credit member select
+  var cashRow=$$('pmb-cash-row'),scRow=$$('pmb-sc-row'),gcRow=$$('pmb-gc-row'),checkRow=$$('pmb-check-row');
+  if(cashRow)  cashRow.style.display  = method==='cash'          ? 'flex'  : 'none';
+  if(scRow)    scRow.style.display    = method==='store_credit'  ? 'block' : 'none';
+  if(gcRow)    gcRow.style.display    = method==='gift_cert'     ? 'block' : 'none';
+  if(checkRow) checkRow.style.display = method==='check'         ? 'flex'  : 'none';
   if(method==='store_credit'){
     var sel=$$('pmb-sc-member');
     if(sel){
@@ -4629,6 +4671,7 @@ function setPosPayMethod(method){
       });
     }
   }
+  checkCompleteBtn();
 }
 function updatePosSCBalance(){
   var sel = $$('pmb-sc-member'), bal = $$('pmb-sc-bal');
