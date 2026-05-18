@@ -495,10 +495,26 @@ async function selectDate(ds, btn){
   // Fetch slots
   try {
     var r = await api('GET','/api/teetimes/'+ds);
+    _activeDiscounts = r.activeDiscounts || [];
     renderSlots(r.slots || []);
   } catch {
     document.getElementById('slots-container').innerHTML = '<div class="slots-empty">⚠️ Could not load tee times. Please try again.</div>';
   }
+}
+
+var _activeDiscounts = [];
+
+function applyBookingDiscount(timeStr){
+  var applicable = _activeDiscounts.filter(function(d){
+    return timeStr >= d.start && timeStr <= d.end;
+  });
+  if(!applicable.length) return null;
+  // Return the best (highest) discount for display
+  var best = null;
+  applicable.forEach(function(d){
+    if(!best || d.val > best.val) best = d;
+  });
+  return best;
 }
 
 function renderSlots(slots){
@@ -509,12 +525,20 @@ function renderSlots(slots){
   var html = '<div class="slots-grid">';
   slots.forEach(function(s){
     var limited = s.available <= 2;
-    html += '<button class="slot-btn'+(limited?' limited':'')+'" onclick="selectSlot(\''+s.time+'\',\''+s.display+'\','+s.available+',this)">'
+    var disc = applyBookingDiscount(s.time);
+    var discBadge = disc ? '<div style="font-size:9px;background:#FAEEDA;color:#633806;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:600">🏷 '+disc.name+(disc.type==='pct'?' ('+disc.val+'% off)':' ($'+disc.val+' off)')+'</div>' : '';
+    html += '<button class="slot-btn'+(limited?' limited':'')+(disc?' selected':'')+(disc?'" style="border-color:#C8962A;background:#FFF8EC':'')+'" onclick="selectSlot(\''+s.time+'\',\''+s.display+'\','+s.available+',this)">'
       +'<div class="slot-time">'+s.display+'</div>'
       +'<div class="slot-avail">'+s.available+' spot'+(s.available===1?'':'s')+' left</div>'
+      +discBadge
       +'</button>';
   });
   html += '</div>';
+  // Show discount legend if any apply
+  if(_activeDiscounts.length){
+    var names=[...new Set(_activeDiscounts.map(function(d){return d.name;}))];
+    html='<div style="background:#FFF8EC;border:1px solid #C8962A;border-radius:8px;padding:7px 11px;font-size:11px;color:#633806;margin-bottom:8px">🏷 <strong>Discount active:</strong> '+names.join(', ')+' — highlighted times qualify</div>'+html;
+  }
   document.getElementById('slots-container').innerHTML = html;
 }
 

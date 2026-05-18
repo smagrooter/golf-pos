@@ -224,7 +224,21 @@ app.get('/api/teetimes/:date', async (req, res) => {
         if (avail > 0) slots.push({ time: t, available: avail, display: formatTime(t) });
       }
     }
-    res.json({ ok: true, slots });
+    // Get active discounts for this date/time from POS settings
+    let activeDiscounts = [];
+    if (posR.rows.length) {
+      try {
+        const posDiscounts = JSON.parse(posR.rows[0].value).discounts || [];
+        const reqDateObj = new Date(date + 'T12:00:00');
+        const dow = reqDateObj.getDay();
+        // For today, check current time; for future dates, show all scheduled discounts for that day
+        activeDiscounts = posDiscounts.filter(d => d.days && d.days.indexOf(dow) >= 0).map(function(d){
+          return {name: d.name, type: d.type, val: d.val, start: d.start, end: d.end, item: d.item};
+        });
+      } catch {}
+    }
+
+    res.json({ ok: true, slots, activeDiscounts });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

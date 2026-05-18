@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Eagle Ridge Golf Course — Pro Shop</title>
+<title>Green Hills Golf Club — Pro Shop</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f2ee;color:#1a1a1a;font-size:14px}
@@ -181,7 +181,7 @@ tr.unpaid-row{background:#FFF0F0}
 <div id="login-screen" style="padding:20px">
   <div class="login-wrap">
     <div style="text-align:center;margin-bottom:16px;font-size:36px">⛳</div>
-    <h2>Eagle Ridge Pro Shop</h2>
+    <h2>Green Hills Golf Club</h2>
     <div class="fg" style="margin-bottom:6px"><label>Username</label><input id="login-user" placeholder="Username"></div>
     <div class="fg" style="margin-bottom:14px">
       <label>Password</label>
@@ -201,7 +201,7 @@ tr.unpaid-row{background:#FFF0F0}
 <div class="hdr">
   <div class="hdr-logo">⛳</div>
   <div>
-    <h1 id="course-name">Eagle Ridge Golf Course</h1>
+    <h1 id="course-name">Green Hills Golf Club</h1>
     <div class="sub">Pro Shop Management System &nbsp;·&nbsp; <span id="today-date"></span></div>
   </div>
   <div style="margin-left:auto;display:flex;align-items:center;gap:9px">
@@ -344,10 +344,11 @@ tr.unpaid-row{background:#FFF0F0}
         </div>
 
         <!-- Check number row -->
-        <div id="pmb-check-row" style="display:none;align-items:center;gap:8px;margin-bottom:8px">
+        <div id="pmb-check-row" style="display:none;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center">
           <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Check #</label>
-          <input id="check-number" placeholder="e.g. 1042" style="width:130px;padding:6px 9px;font-family:monospace;font-size:13px" oninput="checkCompleteBtn()">
-          <span style="font-size:11px;color:#888">Record check number for your records</span>
+          <input id="check-number" placeholder="e.g. 1042" style="width:110px;padding:6px 9px;font-family:monospace;font-size:13px" oninput="checkCompleteBtn()">
+          <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Amount ($)</label>
+          <input type="number" id="check-amount" placeholder="0.00" step="0.01" style="width:100px;padding:6px 9px;font-size:13px" oninput="checkCompleteBtn()">
         </div>
 
         <!-- Store credit row -->
@@ -748,7 +749,7 @@ tr.unpaid-row{background:#FFF0F0}
     <div class="col">
       <div class="card">
         <h3>Course Info</h3>
-        <div class="fg"><label>Course name</label><input id="s-name" value="Eagle Ridge Golf Course"></div>
+        <div class="fg"><label>Course name</label><input id="s-name" value="Green Hills Golf Club"></div>
         <div class="fg" style="margin-bottom:9px"><label>Address</label><input id="s-addr"></div>
         <hr class="div">
         <h3>Sales Tax</h3>
@@ -980,7 +981,7 @@ tr.unpaid-row{background:#FFF0F0}
 <!-- Tournament modal -->
 <div id="ov-tourn-add" class="ov"><div class="modal">
   <div class="modal-hdr" id="tourn-modal-hdr">Create Tournament <button class="btn btn-sm" onclick="closeOv('ov-tourn-add')">&#x2715;</button></div>
-  <div class="fg"><label>Tournament name</label><input id="t-name" placeholder="e.g. Eagle Ridge Open"></div>
+  <div class="fg"><label>Tournament name</label><input id="t-name" placeholder="e.g. Green Hills Open"></div>
   <div class="fg fg2">
     <div><label>Entry fee ($)</label><input type="number" id="t-fee" step="0.01" placeholder="0.00"></div>
     <div><label>Max participants</label><input type="number" id="t-max" placeholder="e.g. 72"></div>
@@ -1250,7 +1251,7 @@ function saveUser(){
 // CONFIG & STATE
 // ============================================================
 var CFG = {
-  tax:8,cur:'$',courseName:'Eagle Ridge Golf Course',
+  tax:8,cur:'$',courseName:'Green Hills Golf Club',
   teeCols:['#1 Tee','#10 Tee','Back 9'],
   teeStart:'06:00',teeEnd:'18:00',teeInt:8,
   prices:{gf18:55,gf9:32,cart:18,trail:10,range:8},
@@ -1813,8 +1814,10 @@ function completeSale(){
   var method='cash';
   if(_posPayMethod==='check'){
     var chkNum=$$('check-number')?$$('check-number').value.trim():'';
-    method='check'+(chkNum?' #'+chkNum:'');
+    var chkAmt=$$('check-amount')?parseFloat($$('check-amount').value)||0:0;
+    method='check'+(chkNum?' #'+chkNum:'')+(chkAmt?' ('+C(chkAmt)+')':'');
     if($$('check-number'))$$('check-number').value='';
+    if($$('check-amount'))$$('check-amount').value='';
   } else if(_posPayMethod==='store_credit'){
     method='store_credit';
   } else if(_posPayMethod==='gift_cert'){
@@ -2745,8 +2748,17 @@ function openMemModal(id){
     $$('m-type').value=m.type;$$('m-exp').value=m.exp||'';$$('m-family').value=m.family||'';$$('m-dues').value=m.dues||'';
     if(CFG.memExpiry)$$('m-exp').value=CFG.memExpiry;
     document.querySelectorAll('.m-addon').forEach(function(cb){cb.checked=m.addons&&m.addons.indexOf(cb.value)>=0;});
-    // Clear spouse fields in edit mode
+    // Pre-fill spouse fields if linked spouse exists
     ['m-sp-first','m-sp-last','m-sp-phone','m-sp-email'].forEach(function(i){if($$(i))$$(i).value='';});
+    if(m.linkedSpouseId){
+      var sp=members.find(function(x){return x.id===m.linkedSpouseId;});
+      if(sp){
+        if($$('m-sp-first'))$$('m-sp-first').value=sp.first||'';
+        if($$('m-sp-last'))$$('m-sp-last').value=sp.last||'';
+        if($$('m-sp-phone'))$$('m-sp-phone').value=sp.phone||'';
+        if($$('m-sp-email'))$$('m-sp-email').value=sp.email||'';
+      }
+    };
   } else {
     ['m-first','m-last','m-phone','m-email','m-addr','m-family'].forEach(function(iid){$$(iid).value='';});
     ['m-sp-first','m-sp-last','m-sp-phone','m-sp-email'].forEach(function(i){if($$(i))$$(i).value='';});
@@ -2773,6 +2785,37 @@ function saveMember(){
     m.credit=cr;m.creditH=crH;
     if(wasPaid){m.paid=true;m.unpaidAddons=newAddons.length?newAddons:[];}
     else{m.paid=false;m.unpaidAddons=[];}
+    // Handle spouse for existing member switching to couple/family
+    if(isCouple){
+      var spFirst2=$$('m-sp-first')?$$('m-sp-first').value.trim():'';
+      var spLast2=$$('m-sp-last')?$$('m-sp-last').value.trim():'';
+      if(spFirst2&&spLast2){
+        if(m.linkedSpouseId){
+          // Update existing linked spouse
+          var existingSp=members.find(function(x){return x.id===m.linkedSpouseId;});
+          if(existingSp){
+            existingSp.first=spFirst2;existingSp.last=spLast2;
+            existingSp.phone=$$('m-sp-phone')?$$('m-sp-phone').value.trim():existingSp.phone;
+            existingSp.email=$$('m-sp-email')?$$('m-sp-email').value.trim():existingSp.email;
+            existingSp.type=type;existingSp.addons=addons;existingSp.exp=m.exp;
+          }
+        } else {
+          // Create new linked spouse
+          var newSpouseId=nextMid++;
+          var newSpData={first:spFirst2,last:spLast2,
+            phone:$$('m-sp-phone')?$$('m-sp-phone').value.trim():'',
+            email:$$('m-sp-email')?$$('m-sp-email').value.trim():'',
+            addr:m.addr,type:type,addons:addons,exp:m.exp,
+            family:m.family,dues:0,paid:m.paid,isMember:true,
+            unpaidAddons:[],active:true,linkedSpouseId:editMemId,isSpouseOf:editMemId};
+          members.push(Object.assign({id:newSpouseId,credit:0,creditH:[]},newSpData));
+          m.linkedSpouseId=newSpouseId;
+          closeOv('ov-mem');renderMembers();buildPosMemberSelect();renderCrAll();saveState();
+          alert('✓ '+first+' '+last+' updated.\nSpouse membership created for '+spFirst2+' '+spLast2+'.\nBoth are linked — paying either one marks both as paid.');
+          return;
+        }
+      }
+    }
   } else {
     var spFirst=$$('m-sp-first')?$$('m-sp-first').value.trim():'';
     var spLast=$$('m-sp-last')?$$('m-sp-last').value.trim():'';
@@ -2813,9 +2856,9 @@ function renderMemTypesList(){
 }
 function addMemType(){var name=$$('new-mem-type').value.trim(),price=parseFloat($$('new-mem-type-price').value)||0;if(!name)return;memTypes.push({name:name,price:price});$$('new-mem-type').value='';$$('new-mem-type-price').value='';renderMemTypesList();}
 function renderAddonTypesList(){
-  $$('addon-types-list').innerHTML=addonTypes.map(function(t,i){return'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><input value="'+t.name+'" onchange="addonTypes['+i+'].name=this.value" style="flex:1"><input type="number" value="'+t.price+'" onchange="addonTypes['+i+'].price=parseFloat(this.value)||0" style="width:90px" step="0.01"><button class="btn bg-red btn-sm" onclick="addonTypes.splice('+i+',1);renderAddonTypesList()">✕</button></div>';}).join('')||'<div style="color:#888;font-size:12px;margin-bottom:7px">No add-on types.</div>';
+  $$('addon-types-list').innerHTML=addonTypes.map(function(t,i){return'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><input value="'+t.name+'" onchange="addonTypes['+i+'].name=this.value;renderPosAddonTiles();buildAddonCheckboxes()" style="flex:1"><input type="number" value="'+t.price+'" onchange="addonTypes['+i+'].price=parseFloat(this.value)||0;renderPosAddonTiles()" style="width:90px" step="0.01"><button class="btn bg-red btn-sm" onclick="addonTypes.splice('+i+',1);renderAddonTypesList();renderPosAddonTiles();buildAddonCheckboxes()">✕</button></div>';}).join('')||'<div style="color:#888;font-size:12px;margin-bottom:7px">No add-on types.</div>';
 }
-function addAddonType(){var name=$$('new-addon-type').value.trim(),price=parseFloat($$('new-addon-price').value)||0;if(!name)return;addonTypes.push({name:name,price:price});$$('new-addon-type').value='';$$('new-addon-price').value='';renderAddonTypesList();}
+function addAddonType(){var name=$$('new-addon-type').value.trim(),price=parseFloat($$('new-addon-price').value)||0;if(!name)return;addonTypes.push({name:name,price:price});$$('new-addon-type').value='';$$('new-addon-price').value='';renderAddonTypesList();renderPosAddonTiles();buildAddonCheckboxes();saveState();}
 function applyGlobalExpiry(){
   var exp=$$('s-mem-exp').value;if(!exp){alert('Set an expiration date first.');return;}
   CFG.memExpiry=exp;
@@ -3020,7 +3063,7 @@ function renderDiscounts(){var el=$$('disc-list');if(!discounts.length){el.inner
 function addDiscount(){var name=$$('disc-name').value.trim(),item=$$('disc-item').value,dtype=$$('disc-type').value,val=parseFloat($$('disc-val').value),start=$$('disc-start').value,end=$$('disc-end').value;var days=[...document.querySelectorAll('.dd:checked')].map(function(x){return parseInt(x.value);});if(!name||!val||!days.length){alert('Fill in name, amount, and at least one day.');return;}discounts.push({name:name,item:item,type:dtype,val:val,start:start,end:end,days:days});renderDiscounts();$$('disc-name').value='';$$('disc-val').value='';document.querySelectorAll('.dd').forEach(function(x){x.checked=false;});}
 function saveSettings(){
   applyTax();
-  CFG.courseName=$$('s-name').value||'Eagle Ridge Golf Course';
+  CFG.courseName=$$('s-name').value||'Green Hills Golf Club';
   $$('course-name').textContent=CFG.courseName;
   CFG.teeStart=$$('s-tee-start').value||'07:00';
   CFG.teeEnd=$$('s-tee-end').value||'18:00';
@@ -3084,7 +3127,7 @@ function initApp(){
 // PERSISTENCE — PostgreSQL via API (auto-saves on every change)
 // Falls back to localStorage if running offline/locally
 // ============================================================
-var STORE_KEY = 'eagleridge_pos_v6';
+var STORE_KEY = 'greenhills_pos_v6';
 var _saveTimer = null;
 var _dbAvailable = null; // null=unknown, true=yes, false=no
 
@@ -3232,7 +3275,7 @@ function loadStateLocal(){
 // Override the day/roster saves to also hit the DB
 function saveDayState(){
   var d={open:_dayOpen,sessionId:_currentSessionId,openedBy:_dayOpenedBy,openedAt:_dayOpenedAt,sessions:_daySessions};
-  try{localStorage.setItem('eagleridge_day', JSON.stringify(d));}catch(e){}
+  try{localStorage.setItem('greenhills_day', JSON.stringify(d));}catch(e){}
   _checkDB().then(function(hasDB){
     if(!hasDB) return;
     fetch('/api/data/pos_day',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:d})}).catch(function(){});
@@ -3240,7 +3283,7 @@ function saveDayState(){
 }
 function saveRosterState(){
   var ro={rosters:tournamentRosters,declines:_declineLog};
-  try{localStorage.setItem('eagleridge_rosters', JSON.stringify(ro));}catch(e){}
+  try{localStorage.setItem('greenhills_rosters', JSON.stringify(ro));}catch(e){}
   _checkDB().then(function(hasDB){
     if(!hasDB) return;
     fetch('/api/data/pos_rosters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:ro})}).catch(function(){});
@@ -4030,7 +4073,7 @@ var _baseLoadState = loadState;
 loadState = function(){
   var r = _baseLoadState();
   try{
-    var raw = localStorage.getItem('eagleridge_day');
+    var raw = localStorage.getItem('greenhills_day');
     if(raw){
       var d = JSON.parse(raw);
       _dayOpen = d.open || false;
@@ -4637,7 +4680,7 @@ var _baseLSR = loadState;
 loadState = function(){
   var r=_baseLSR();
   try{
-    var raw=localStorage.getItem('eagleridge_rosters');
+    var raw=localStorage.getItem('greenhills_rosters');
     if(raw){var d=JSON.parse(raw);if(d.rosters)tournamentRosters=d.rosters;if(d.declines)_declineLog=d.declines;}
   }catch(e){}
   return r;
