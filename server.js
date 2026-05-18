@@ -238,7 +238,26 @@ app.get('/api/teetimes/:date', async (req, res) => {
       } catch {}
     }
 
-    res.json({ ok: true, slots, activeDiscounts });
+    // Get tee time blocks for this date
+    let teeBlocksForDate = [];
+    if (posR.rows.length) {
+      try {
+        const posData = JSON.parse(posR.rows[0].value);
+        const allBlocks = posData.teeBlocks || [];
+        teeBlocksForDate = allBlocks.filter(b => b.date === date);
+      } catch {}
+    }
+
+    // Filter out blocked slots and annotate with block reason
+    const finalSlots = slots.map(function(s) {
+      const block = teeBlocksForDate.find(b =>
+        b.type === 'day' || (s.time >= b.start && s.time <= b.end)
+      );
+      if (block) return { ...s, blocked: true, blockReason: block.reason, available: 0 };
+      return s;
+    });
+
+    res.json({ ok: true, slots: finalSlots, activeDiscounts, teeBlocks: teeBlocksForDate });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

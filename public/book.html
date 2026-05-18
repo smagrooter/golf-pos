@@ -290,6 +290,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <script>
 var state={date:null,time:null,timeDisplay:null,holes:'18',players:1,maxAvail:4,extraNames:[],golfer:null,token:null};
 var _activeDiscounts=[];
+var _teeBlocksForDate=[];
 
 (async function(){
   loadToken();buildDateTabs();await checkSession();
@@ -375,6 +376,7 @@ async function selectDate(ds,btn){
   try{
     var r=await api('GET','/api/teetimes/'+ds);
     _activeDiscounts=r.activeDiscounts||[];
+    _teeBlocksForDate=r.teeBlocks||[];
     renderTeeCards(r.slots||[],ds);
   }catch{sec.innerHTML='<div class="tee-empty">⚠️ Could not load tee times. Please try again.</div>';}
 }
@@ -388,38 +390,62 @@ function applyDiscount(timeStr){
 function renderTeeCards(slots,ds){
   var sec=document.getElementById('tee-section');
   var heading='<div class="date-heading">'+fmtDateDisplay(ds)+'</div>';
+  var dayBlock=_teeBlocksForDate.find(function(b){return b.type==='day';});
+  if(dayBlock){
+    sec.innerHTML=heading+'<div style="background:#FCEBEB;border:1.5px solid #e9b3b3;border-radius:14px;padding:32px 24px;text-align:center">'
+      +'<div style="font-size:36px;margin-bottom:10px">\uD83D\uDEAB<\/div>'
+      +'<div style="font-size:17px;font-weight:700;color:#791F1F;margin-bottom:7px">Course Unavailable<\/div>'
+      +'<div style="font-size:14px;color:#A32D2D;font-weight:500">'+dayBlock.reason+'<\/div>'
+      +'<div style="font-size:12px;color:#999;margin-top:12px">Please select another date or call us at (307) 347-8972.<\/div>'
+      +'<\/div>';
+    return;
+  }
   var legend='';
   if(_activeDiscounts.length){
     var names=[...new Set(_activeDiscounts.map(function(d){return d.name;}))];
-    legend='<div class="disc-legend">🏷 <strong>Discount active:</strong> '+names.join(', ')+' — highlighted tee times qualify</div>';
+    legend='<div class="disc-legend">\uD83C\uDFF7 <strong>Discount active:<\/strong> '+names.join(', ')+' \u2014 highlighted tee times qualify<\/div>';
   }
-  if(!slots.length){sec.innerHTML=heading+legend+'<div class="tee-empty">⛳ No available tee times for this date.<br><span style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Please select another date or call us at (307) 347-8972.</span></div>';return;}
+  var rangeBlocks=_teeBlocksForDate.filter(function(b){return b.type==='range';});
+  if(rangeBlocks.length){
+    var reasons=[...new Set(rangeBlocks.map(function(b){return b.reason;}))];
+    legend+='<div style="background:#FCEBEB;border:1px solid #e9b3b3;border-radius:10px;padding:9px 14px;font-size:12px;color:#791F1F;margin-bottom:14px;display:flex;align-items:center;gap:8px">\uD83D\uDEAB <strong>Some times blocked:<\/strong> '+reasons.join(' \u00B7 ')+'<\/div>';
+  }
+  if(!slots.length){sec.innerHTML=heading+legend+'<div class="tee-empty">\u26F3 No available tee times for this date.<br><span style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Please select another date or call us at (307) 347-8972.<\/span><\/div>';return;}
   var p9=32,p18=55;
   var html=heading+legend+'<div class="tee-grid">';
   slots.forEach(function(s){
+    if(s.blocked){
+      html+='<div class="tee-card" style="cursor:not-allowed;opacity:.75;border-color:#e9b3b3">'
+        +'<div class="tee-card-hdr" style="background:#b83232"><span class="t-icon">\uD83D\uDEAB<\/span><span class="t-time">'+s.display+'<\/span><\/div>'
+        +'<div class="tee-card-body">'
+        +'<div class="t-course">Green Hills Golf Club<\/div>'
+        +'<div style="font-size:12px;color:#791F1F;font-weight:600;margin-top:6px">Unavailable<\/div>'
+        +'<div style="font-size:11px;color:#A32D2D;margin-top:3px">'+s.blockReason+'<\/div>'
+        +'<\/div><\/div>';
+      return;
+    }
     var disc=applyDiscount(s.time);
     var limited=s.available<=2;
     var dp9=p9,dp18=p18;
     if(disc){dp9=disc.type==='pct'?parseFloat((p9*(1-disc.val/100)).toFixed(2)):Math.max(0,p9-disc.val);dp18=disc.type==='pct'?parseFloat((p18*(1-disc.val/100)).toFixed(2)):Math.max(0,p18-disc.val);}
-    var dots='';for(var i=0;i<4;i++)dots+='<div class="t-dot'+(i>=s.available?' empty':'')+'"></div>';
+    var dots='';for(var i=0;i<4;i++)dots+='<div class="t-dot'+(i>=s.available?' empty':'')+'"><\/div>';
     var priceMain='$'+dp9+' / $'+dp18;
-    var priceOld=disc?'<div class="t-price-old">Was $'+p9+' / $'+p18+'</div>':'';
-    var discBadge=disc?'<div class="t-disc-badge">🏷 '+disc.name+(disc.type==='pct'?' ('+disc.val+'% off)':' ($'+disc.val+' off)')+'</div>':'';
+    var priceOld=disc?'<div class="t-price-old">Was $'+p9+' / $'+p18+'<\/div>':'';
+    var discBadge=disc?'<div class="t-disc-badge">\uD83C\uDFF7 '+disc.name+(disc.type==='pct'?' ('+disc.val+'% off)':' ($'+disc.val+' off)')+'<\/div>':'';
     html+='<button class="tee-card'+(disc?' disc-card':'')+(limited?' limited-card':'')+'" onclick="openBooking(\''+s.time+'\',\''+s.display+'\','+s.available+')">'
-      +'<div class="tee-card-hdr"><span class="t-icon">🕐</span><span class="t-time">'+s.display+'</span></div>'
+      +'<div class="tee-card-hdr"><span class="t-icon">\uD83D\uDD50<\/span><span class="t-time">'+s.display+'<\/span><\/div>'
       +'<div class="tee-card-body">'
-      +'<div class="t-course">Green Hills Golf Club</div>'
+      +'<div class="t-course">Green Hills Golf Club<\/div>'
       +priceOld
-      +'<div class="t-price">'+priceMain+'</div>'
-      +'<div class="t-holes-lbl">9 holes / 18 holes</div>'
-      +'<div class="t-avail"><div class="t-dots">'+dots+'</div>'+s.available+' spot'+(s.available===1?'':'s')+' left</div>'
+      +'<div class="t-price">'+priceMain+'<\/div>'
+      +'<div class="t-holes-lbl">9 holes / 18 holes<\/div>'
+      +'<div class="t-avail"><div class="t-dots">'+dots+'<\/div>'+s.available+' spot'+(s.available===1?'':'s')+' left<\/div>'
       +discBadge
-      +'</div></button>';
+      +'<\/div><\/button>';
   });
-  html+='</div>';
+  html+='<\/div>';
   sec.innerHTML=html;
 }
-
 function openBooking(time,display,avail){
   state.time=time;state.timeDisplay=display;state.maxAvail=avail;
   document.getElementById('bm-time-display').textContent=display+' · '+fmtDateDisplay(state.date);

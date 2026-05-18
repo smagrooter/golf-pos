@@ -847,6 +847,32 @@ tr.unpaid-row{background:#FFF0F0}
           <button class="btn bg-green btn-sm" onclick="addDiscount()">+ Add Rule</button>
         </div>
       </div>
+      <div class="card">
+        <h3>🚫 Tee Time Blocks</h3>
+        <p style="font-size:12px;color:#666;margin-bottom:10px">Block specific dates or time ranges from online booking. Blocked times show a reason to customers on the booking page.</p>
+        <div id="tee-blocks-list" style="margin-bottom:10px"></div>
+        <div style="background:#f8f8f4;border-radius:9px;padding:11px">
+          <div style="font-size:12px;font-weight:700;margin-bottom:8px">Add Block</div>
+          <div class="fg"><label>Reason shown to customers</label><input id="blk-reason" placeholder="e.g. Course maintenance, Tournament day, Private event"></div>
+          <div class="fg fg2">
+            <div><label>Date</label><input type="date" id="blk-date"></div>
+            <div><label>Block type</label>
+              <select id="blk-type" onchange="toggleBlockType(this.value)">
+                <option value="day">Entire day</option>
+                <option value="range">Specific time range</option>
+              </select>
+            </div>
+          </div>
+          <div id="blk-time-fields" style="display:none">
+            <div class="fg fg2">
+              <div><label>From</label><input type="time" id="blk-start" value="07:00"></div>
+              <div><label>To</label><input type="time" id="blk-end" value="12:00"></div>
+            </div>
+          </div>
+          <button class="btn bg-red btn-sm" onclick="addTeeBlock()">+ Add Block</button>
+          <div id="blk-msg" style="margin-top:6px"></div>
+        </div>
+      </div>
     </div>
   </div>
   <div class="card"><button class="btn bg-green" onclick="saveSettings()">✓ Save All Settings</button>
@@ -1290,6 +1316,7 @@ var editMemId=null,editInvId=null,editTournId=null,editCfId=null;
 var splits=[];
 var posMemberId=null;
 var eodHistory=[];
+var teeBlocks=[]; // [{id,date,type:'day'|'range',start,end,reason}]
 var members=[
   {id:1,first:'John',last:'Smith',phone:'(307)555-0101',email:'john@email.com',addr:'123 Main St',type:'Single',addons:[],spouse:'',family:'',exp:'2025-12-31',dues:800,paid:true,credit:0,creditH:[],isMember:true},
   {id:2,first:'Mary',last:'Johnson',phone:'(307)555-0102',email:'mary@email.com',addr:'456 Oak Ave',type:'Couple',addons:['Cart membership'],spouse:'Tom Johnson',family:'',exp:'2025-12-31',dues:1700,paid:false,credit:50,creditH:[{date:'5/10',type:'add',amt:50,reason:'Tournament win'}],isMember:true},
@@ -1351,7 +1378,7 @@ function showTab(id,btn){
   if(id==='tee')renderTee();
   if(id==='credit')renderCrAll();
   if(id==='gift')renderGCTable();
-  if(id==='settings'){renderTeeCols();renderDiscounts();renderMemTypesList();renderAddonTypesList();}
+  if(id==='settings'){renderTeeCols();renderDiscounts();renderMemTypesList();renderAddonTypesList();renderTeeBlocksList();}
   if(id==='reports'){runReport();updateDrawer();}
   if(id==='security'){renderUsers();}
   if(id==='course')renderCourseFees();
@@ -2859,6 +2886,65 @@ function renderAddonTypesList(){
   $$('addon-types-list').innerHTML=addonTypes.map(function(t,i){return'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><input value="'+t.name+'" onchange="addonTypes['+i+'].name=this.value;renderPosAddonTiles();buildAddonCheckboxes()" style="flex:1"><input type="number" value="'+t.price+'" onchange="addonTypes['+i+'].price=parseFloat(this.value)||0;renderPosAddonTiles()" style="width:90px" step="0.01"><button class="btn bg-red btn-sm" onclick="addonTypes.splice('+i+',1);renderAddonTypesList();renderPosAddonTiles();buildAddonCheckboxes()">✕</button></div>';}).join('')||'<div style="color:#888;font-size:12px;margin-bottom:7px">No add-on types.</div>';
 }
 function addAddonType(){var name=$$('new-addon-type').value.trim(),price=parseFloat($$('new-addon-price').value)||0;if(!name)return;addonTypes.push({name:name,price:price});$$('new-addon-type').value='';$$('new-addon-price').value='';renderAddonTypesList();renderPosAddonTiles();buildAddonCheckboxes();saveState();}
+
+// ============================================================
+// TEE TIME BLOCKS
+// ============================================================
+var _nextBlkId=1;
+function toggleBlockType(val){
+  var el=$$('blk-time-fields');
+  if(el)el.style.display=val==='range'?'block':'none';
+}
+function addTeeBlock(){
+  var reason=$$('blk-reason').value.trim();
+  var date=$$('blk-date').value;
+  var type=$$('blk-type').value;
+  if(!reason){sMsg('blk-msg','Please enter a reason','red');return;}
+  if(!date){sMsg('blk-msg','Please select a date','red');return;}
+  var blk={id:_nextBlkId++,date:date,type:type,reason:reason};
+  if(type==='range'){
+    blk.start=$$('blk-start').value||'00:00';
+    blk.end=$$('blk-end').value||'23:59';
+    if(blk.start>=blk.end){sMsg('blk-msg','End time must be after start time','red');return;}
+  }
+  teeBlocks.push(blk);
+  renderTeeBlocksList();saveState();
+  $$('blk-reason').value='';$$('blk-date').value='';
+  sMsg('blk-msg','Block added','green');
+  setTimeout(function(){sMsg('blk-msg','','');},2000);
+}
+function delTeeBlock(id){
+  teeBlocks=teeBlocks.filter(function(b){return b.id!==id;});
+  renderTeeBlocksList();saveState();
+}
+function renderTeeBlocksList(){
+  var el=$$('tee-blocks-list');if(!el)return;
+  if(!teeBlocks.length){el.innerHTML='<div style="color:#888;font-size:12px">No blocks set.</div>';return;}
+  // Sort by date
+  var sorted=teeBlocks.slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  el.innerHTML=sorted.map(function(b){
+    var typeLabel=b.type==='day'?'All day':(b.start+' – '+b.end);
+    var isPast=b.date<new Date().toISOString().split('T')[0];
+    return'<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0e8;flex-wrap:wrap'+(isPast?';opacity:.55':'')+'">'
+      +'<span style="font-size:11px;font-weight:700;color:#A32D2D;min-width:28px">🚫</span>'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:13px;font-weight:600">'+b.date+' <span style="font-size:11px;font-weight:400;color:#666">'+typeLabel+'</span>'+(isPast?'<span style="font-size:10px;color:#aaa;margin-left:5px">past</span>':'')+'</div>'
+      +'<div style="font-size:11px;color:#555">'+b.reason+'</div>'
+      +'</div>'
+      +'<button class="btn bg-red btn-sm" onclick="delTeeBlock('+b.id+')">✕</button>'
+      +'</div>';
+  }).join('');
+}
+function getBlocksForDate(date){
+  return teeBlocks.filter(function(b){return b.date===date;});
+}
+function isTimeBlocked(date,time){
+  var blocks=getBlocksForDate(date);
+  return blocks.some(function(b){
+    if(b.type==='day')return true;
+    return time>=b.start&&time<=b.end;
+  });
+}
 function applyGlobalExpiry(){
   var exp=$$('s-mem-exp').value;if(!exp){alert('Set an expiration date first.');return;}
   CFG.memExpiry=exp;
@@ -3117,6 +3203,7 @@ function initApp(){
   renderCrAll();renderGCTable();
   renderCourseFees();renderTournaments();renderTournTable();
   renderPosCourseFees();renderPosTournaments();renderPosAddonTiles();
+  renderTeeBlocksList();
   buildMemTypeFilter();buildMemTypeSelect();buildAddonCheckboxes();
   checkExpirations();renderMembers();
   updateRefundUI();
@@ -3148,7 +3235,7 @@ function _buildState(){
     giftCerts:giftCerts, discounts:discounts, memTypes:memTypes,
     addonTypes:addonTypes, courseFees:courseFees, tournaments:tournaments,
     CFG:CFG, nextMid:nextMid, nextPid:nextPid, nextTid:nextTid, nextCfId:nextCfId,
-    eodHistory:eodHistory,
+    eodHistory:eodHistory, teeBlocks:teeBlocks,
     users:users.filter(function(u){return u.role!=='admin';}),
     savedAt:Date.now()
   };
@@ -3167,6 +3254,7 @@ function _applyState(s){
   if(s.courseFees)courseFees=s.courseFees;
   if(s.tournaments)tournaments=s.tournaments;
   if(s.eodHistory)eodHistory=s.eodHistory;
+  if(s.teeBlocks)teeBlocks=s.teeBlocks;
   if(s.CFG){
     // Deep merge CFG — preserve all saved values including nested prices
     Object.keys(s.CFG).forEach(function(k){
@@ -3949,8 +4037,8 @@ var _baseShowTab = showTab;
 showTab = function(id, btn){
   _baseShowTab(id, btn);
   if(id === 'settings'){
-    // Always repopulate settings fields from current CFG when tab opens
     populateSettingsFields();
+    renderTeeBlocksList();
     var cpCard = $$('cp-settings-card');
     if(cpCard){
       var canSee = !currentUser || currentUser.role === 'admin' || currentUser.role === 'manager' || canDo('CardPointe settings');
