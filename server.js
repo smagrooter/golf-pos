@@ -275,7 +275,7 @@ app.post('/api/bookings', async (req, res) => {
       [golferId, date, time, holes||'18', parseInt(players), (extraNames||[]).join(','), firstName, lastName, email, notes||'']
     );
     const bookingId = bR.rows[0].id;
-    const posKey = `${date}_${time}_#1 Tee`;
+    const posKey = `${date}|${time}|#1 Tee`;
 
     // Inject into POS tee sheet
     if (posData) {

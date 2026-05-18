@@ -425,13 +425,17 @@ tr.unpaid-row{background:#FFF0F0}
       <input type="date" id="tee-date" style="width:155px" onchange="renderTee()">
       <button class="btn btn-sm" onclick="teeNav(1)">▶</button>
       <button class="btn btn-sm bg-blue" onclick="$$('tee-date').value=todayStr();renderTee()">Today</button>
+      <button class="btn btn-sm bg-green" onclick="manualTeeRefresh()" title="Sync online bookings now" style="margin-left:4px">🔄 Sync</button>
       <span id="tee-booked" class="badge b-blue" style="margin-left:auto"></span>
+    </div>
+    <div id="tee-refresh-notice" style="display:none;background:#EAF3DE;border:1px solid #9DC76A;border-radius:7px;padding:6px 11px;font-size:11px;color:#27500A;margin-bottom:8px;align-items:center;gap:7px">
+      🔔 New online booking received — tee sheet updated
     </div>
     <div style="font-size:11px;color:#888;display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">
       <span><span style="display:inline-block;width:9px;height:9px;background:#FFF9C4;border:1px solid #B8860B;border-radius:2px"></span> Unpaid 18h</span>
       <span><span style="display:inline-block;width:9px;height:9px;background:#E6F1FB;border:1px solid #185FA5;border-radius:2px"></span> Unpaid 9h</span>
       <span><span style="display:inline-block;width:9px;height:9px;background:#EAF3DE;border:1px solid #639922;border-radius:2px"></span> Paid</span>
-      <span>4 slots per time · click name=view · dbl-click=POS</span>
+      <span>4 slots per time · click name=view · dbl-click=POS · 🔄 syncs every 30s</span>
     </div>
     <div style="overflow-x:auto"><div id="tee-cal"></div></div>
   </div>
@@ -1981,7 +1985,15 @@ function _autoBookWalkIn(holes){
 // ============================================================
 function teeNav(d){var dt=new Date($$('tee-date').value+'T12:00:00');dt.setDate(dt.getDate()+d);$$('tee-date').value=dt.toISOString().split('T')[0];renderTee();}
 function slotsUsed(date,time,col){return Object.values(bookings).filter(function(b){return b.date===date&&b.time===time&&b.col===col;}).reduce(function(a,b){return a+parseInt(b.players);},0);}
-function bookingKey(date,time,col){return date+'|'+time+'|'+col+'|'+Date.now();}
+function bookingKey(date,time,col){
+  // Stable key — no timestamp so online bookings can match
+  // Format: date|time|col  (if collision add suffix)
+  var base=date+'|'+time+'|'+col;
+  if(!bookings[base]) return base;
+  var i=2;
+  while(bookings[base+'|'+i]) i++;
+  return base+'|'+i;
+}
 function fillBookingFromMember(){var id=parseInt($$('tm-member-sel').value);if(!id)return;var m=members.find(function(x){return x.id===id;});if(m){$$('tm-name').value=m.first+' '+m.last;if($$('tm-email')&&m.email)$$('tm-email').value=m.email;if($$('tm-phone')&&m.phone)$$('tm-phone').value=m.phone;}}
 function buildTeeBookMemberSelect(){
   var sel=$$('tm-member-sel');
@@ -2933,6 +2945,81 @@ function importData(){
 
 // Auto-save every 30 seconds as extra safety net
 setInterval(saveState, 30000);
+
+// Manual tee sheet sync button
+async function manualTeeRefresh(){
+  var btn=document.querySelector('[onclick="manualTeeRefresh()"]');
+  if(btn){btn.textContent='⏳ Syncing...';btn.disabled=true;}
+  var hasDB=await _checkDB();
+  if(!hasDB){
+    if(btn){btn.textContent='🔄 Sync';btn.disabled=false;}
+    sMsg('sale-msg','Not connected to database','red');return;
+  }
+  try{
+    var r=await fetch('/api/data');
+    var json=await r.json();
+    if(json.ok&&json.data&&json.data.pos_main){
+      var remoteBookings=json.data.pos_main.bookings||{};
+      var changed=false;
+      Object.entries(remoteBookings).forEach(function(e){
+        if(!bookings[e[0]]){bookings[e[0]]=e[1];changed=true;}
+      });
+      Object.keys(bookings).forEach(function(k){
+        if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}
+      });
+      _lastBookingCount=Object.keys(bookings).length;
+      renderTee();
+      var notice=document.getElementById('tee-refresh-notice');
+      if(notice){
+        notice.textContent=changed?'✅ Tee sheet synced — new bookings loaded':'✅ Tee sheet is up to date';
+        notice.style.display='flex';
+        setTimeout(function(){notice.style.display='none';notice.textContent='🔔 New online booking received — tee sheet updated';},3000);
+      }
+    }
+  }catch(e){sMsg('sale-msg','Sync failed: '+e.message,'red');}
+  if(btn){btn.textContent='🔄 Sync';btn.disabled=false;}
+}
+
+// ── Tee sheet live refresh ───────────────────────────────────────────────────
+// Poll the database every 30s and re-render the tee sheet if new bookings arrived
+var _lastBookingCount = 0;
+var _teeRefreshTimer = null;
+function startTeeRefresh(){
+  if(_teeRefreshTimer) return; // already running
+  _teeRefreshTimer = setInterval(async function(){
+    var hasDB = await _checkDB();
+    if(!hasDB) return;
+    try{
+      var r = await fetch('/api/data');
+      var json = await r.json();
+      if(!json.ok || !json.data || !json.data.pos_main) return;
+      var remoteBookings = json.data.pos_main.bookings || {};
+      var remoteCount = Object.keys(remoteBookings).length;
+      if(remoteCount !== _lastBookingCount){
+        // New or cancelled bookings detected — merge remote into local
+        var changed = false;
+        // Add any remote bookings not in local
+        Object.entries(remoteBookings).forEach(function(e){
+          var k=e[0], b=e[1];
+          if(!bookings[k]){ bookings[k]=b; changed=true; }
+        });
+        // Remove local bookings that were cancelled online
+        Object.keys(bookings).forEach(function(k){
+          if(bookings[k].onlineBookingId && !remoteBookings[k]){ delete bookings[k]; changed=true; }
+        });
+        _lastBookingCount = Object.keys(bookings).length;
+        if(changed){
+          renderTee();
+          // Show subtle notification
+          var el=document.getElementById('tee-refresh-notice');
+          if(el){ el.style.display='flex'; setTimeout(function(){el.style.display='none';},4000); }
+        }
+      }
+    }catch(e){ /* silent fail */ }
+  }, 30000); // every 30 seconds
+}
+// Start polling after initial load
+setTimeout(startTeeRefresh, 5000);
 
 // DB status indicator — shows in top bar
 function _showDBStatus(connected){
