@@ -2730,12 +2730,42 @@ function saveSettings(){
   applyTax();
   CFG.courseName=$$('s-name').value||'Eagle Ridge Golf Course';
   $$('course-name').textContent=CFG.courseName;
-  CFG.teeStart=$$('s-tee-start').value;CFG.teeEnd=$$('s-tee-end').value;CFG.teeInt=parseInt($$('s-tee-int').value)||8;
-  CFG.prices.gf18=parseFloat($$('s-gf18').value)||55;CFG.prices.gf9=parseFloat($$('s-gf9').value)||32;
-  CFG.prices.cart=parseFloat($$('s-cart').value)||18;CFG.prices.trail=parseFloat($$('s-trail').value)||10;CFG.prices.range=parseFloat($$('s-range').value)||8;
+  CFG.teeStart=$$('s-tee-start').value||'07:00';
+  CFG.teeEnd=$$('s-tee-end').value||'18:00';
+  CFG.teeInt=parseInt($$('s-tee-int').value)||10;
+  CFG.prices.gf18=parseFloat($$('s-gf18').value)||55;
+  CFG.prices.gf9=parseFloat($$('s-gf9').value)||32;
+  CFG.prices.cart=parseFloat($$('s-cart').value)||18;
+  CFG.prices.trail=parseFloat($$('s-trail').value)||10;
+  CFG.prices.range=parseFloat($$('s-range').value)||8;
   CFG.memExpiry=$$('s-mem-exp').value||'';
   buildTimes();renderTeeCols();buildMemTypeFilter();
+  renderPosCourseFees();
+  saveState();
   var msg=$$('s-saved');msg.textContent='All settings saved!';setTimeout(function(){msg.textContent='';},2500);
+}
+
+// Populate every settings input from CFG — called after load so UI always reflects saved values
+function populateSettingsFields(){
+  if($$('s-name'))$$('s-name').value=CFG.courseName||'';
+  if($$('s-tax'))$$('s-tax').value=CFG.tax||8;
+  if($$('s-tax-lbl'))$$('s-tax-lbl').value=CFG.taxLabel||'Sales tax';
+  if($$('s-tee-start'))$$('s-tee-start').value=CFG.teeStart||'07:00';
+  if($$('s-tee-end'))$$('s-tee-end').value=CFG.teeEnd||'18:00';
+  if($$('s-tee-int')){
+    var iv=String(CFG.teeInt||10);
+    for(var i=0;i<$$('s-tee-int').options.length;i++){
+      if($$('s-tee-int').options[i].value===iv){$$('s-tee-int').selectedIndex=i;break;}
+    }
+  }
+  if($$('s-gf18'))$$('s-gf18').value=(CFG.prices&&CFG.prices.gf18)||55;
+  if($$('s-gf9'))$$('s-gf9').value=(CFG.prices&&CFG.prices.gf9)||32;
+  if($$('s-cart'))$$('s-cart').value=(CFG.prices&&CFG.prices.cart)||18;
+  if($$('s-trail'))$$('s-trail').value=(CFG.prices&&CFG.prices.trail)||10;
+  if($$('s-range'))$$('s-range').value=(CFG.prices&&CFG.prices.range)||8;
+  if($$('s-mem-exp'))$$('s-mem-exp').value=CFG.memExpiry||'';
+  if($$('s-currency'))$$('s-currency').value=CFG.cur||'$';
+  if($$('tax-rate-lbl'))$$('tax-rate-lbl').textContent=CFG.tax||8;
 }
 
 // ============================================================
@@ -2800,7 +2830,16 @@ function _applyState(s){
   if(s.addonTypes)addonTypes=s.addonTypes;
   if(s.courseFees)courseFees=s.courseFees;
   if(s.tournaments)tournaments=s.tournaments;
-  if(s.CFG)Object.assign(CFG,s.CFG);
+  if(s.CFG){
+    // Deep merge CFG — preserve all saved values including nested prices
+    Object.keys(s.CFG).forEach(function(k){
+      if(k==='prices'&&s.CFG.prices&&typeof s.CFG.prices==='object'){
+        Object.assign(CFG.prices, s.CFG.prices);
+      } else {
+        CFG[k]=s.CFG[k];
+      }
+    });
+  }
   if(s.nextMid)nextMid=s.nextMid;
   if(s.nextPid)nextPid=s.nextPid;
   if(s.nextTid)nextTid=s.nextTid;
@@ -3352,8 +3391,8 @@ initApp=function(){
   // Try DB load first (async), fall back to localStorage
   loadStateAsync().then(function(){
     _baseInitApp();
-    if($$('s-tax'))$$('s-tax').value=CFG.tax;
-    if($$('s-name'))$$('s-name').value=CFG.courseName;
+    // Populate ALL settings fields from loaded CFG — prevents revert on save
+    populateSettingsFields();
     if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
     if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
     if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
@@ -3499,6 +3538,8 @@ var _baseShowTab = showTab;
 showTab = function(id, btn){
   _baseShowTab(id, btn);
   if(id === 'settings'){
+    // Always repopulate settings fields from current CFG when tab opens
+    populateSettingsFields();
     var cpCard = $$('cp-settings-card');
     if(cpCard){
       var canSee = !currentUser || currentUser.role === 'admin' || currentUser.role === 'manager' || canDo('CardPointe settings');
