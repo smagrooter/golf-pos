@@ -444,7 +444,7 @@ tr.unpaid-row{background:#FFF0F0}
           </select>
         </div>
         <table style="table-layout:fixed">
-          <thead><tr><th style="width:42px">Time</th><th>Items</th><th style="width:60px">Method</th><th style="width:55px">Total</th></tr></thead>
+          <thead><tr><th style="width:42px">Time</th><th>Items</th><th style="width:60px">Method</th><th style="width:55px">Total</th><th style="width:30px"></th></tr></thead>
           <tbody id="sales-log"></tbody>
         </table>
       </div>
@@ -1997,7 +1997,7 @@ function completeSale(){
   }
   var items=cart.map(function(x){return x.name+(x.qty>1?' x'+x.qty:'');}).join(', ');
   var cats={};cart.forEach(function(x){cats[x.cat]=(cats[x.cat]||0)+x.price*x.qty;});
-  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||''});
+  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,taxAmt:taxOn?parseFloat((taxSub*CFG.tax/100).toFixed(2)):0,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||''});
   // Auto-book walk-ins for green fee sales not linked to a tee time
   var walkInItems=cart.filter(function(x){return !x.teeKey&&x._cfHoles;});
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
@@ -2105,18 +2105,27 @@ function renderSalesLog(){
     if(!f)return true;
     return s.method&&s.method.toLowerCase().indexOf(f)>=0;
   });
-  if(!list.length){tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:#888;padding:12px;font-size:12px">'+(f?'No '+f+' sales today':'No sales yet today')+'</td></tr>';return;}
-  var methodColor={'cash':'b-green','card':'b-blue','credit':'b-teal','gift':'b-amber'};
-  tb.innerHTML=list.map(function(s){
+  if(!list.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#888;padding:12px;font-size:12px">'+(f?'No '+f+' sales today':'No sales yet today')+'</td></tr>';return;}
+  var methodColor={'cash':'b-green','card':'b-blue','credit':'b-teal','gift':'b-amber','check':'b-amber'};
+  tb.innerHTML=list.map(function(s,i){
     var mKey=Object.keys(methodColor).find(function(k){return s.method&&s.method.toLowerCase().indexOf(k)>=0;})||'';
-    var badge=mKey?'<span class="badge '+methodColor[mKey]+'" style="font-size:9px">'+mKey+'</span>':'<span class="badge b-gray" style="font-size:9px">'+s.method+'</span>';
+    var badge=mKey?'<span class="badge '+methodColor[mKey]+'" style="font-size:9px">'+mKey+'</span>':'<span class="badge b-gray" style="font-size:9px">'+(s.method||'—')+'</span>';
+    var sIdx=sales.length-1-i; // index in original sales array
     return'<tr>'
       +'<td style="font-size:11px;color:#888">'+s.time+'</td>'
       +'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">'+s.items+'</td>'
       +'<td>'+badge+'</td>'
       +'<td style="font-size:12px;font-weight:600;text-align:right">'+C(s.total)+'</td>'
+      +'<td><button class="btn btn-sm" style="padding:2px 6px;font-size:10px" onclick="reprintReceipt('+sIdx+')" title="Reprint receipt">🖨</button></td>'
       +'</tr>';
   }).join('');
+}
+
+function reprintReceipt(idx){
+  var s=sales[idx];
+  if(!s){alert('Sale not found.');return;}
+  var taxAmt=s.taxAmt||0;
+  printReceiptNow(s.items,s.method,s.total,taxAmt,0,'');
 }
 function updateRefundUI(){var m=$$('ref-method').value,el=$$('ref-extra');if(m==='credit'){var opts=members.map(function(mm){return'<option value="'+mm.first+' '+mm.last+'">';}).join('');el.innerHTML='<div><label>Apply credit to</label><input id="ref-mem" placeholder="Member name" list="ref-mem-dl"><datalist id="ref-mem-dl">'+opts+'</datalist></div>';}else if(m==='gift'){el.innerHTML='<div style="font-size:12px;color:#0C447C;background:#E6F1FB;border-radius:7px;padding:7px 10px">A new gift certificate will be issued for the refund amount.</div>';}else{el.innerHTML='';}}
 function openRefundModal(){

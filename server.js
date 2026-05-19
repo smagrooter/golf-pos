@@ -334,7 +334,7 @@ app.post('/api/bookings', async (req, res) => {
       posData.bookings[posKey] = {
         name: fullName, extras: (extraNames||[]).filter(Boolean),
         players: parseInt(players), holes: holes||'18', cart: 'none',
-        notes: `Online booking #GH-${bookingId}`, paidNames: [], paid: false,
+        notes: (notes && notes.trim()) ? notes.trim() + ` (Online #GH-${bookingId})` : `Online booking #GH-${bookingId}`, paidNames: [], paid: false,
         memberId: null, email, phone: '', date, time, col: '#1 Tee',
         onlineBookingId: bookingId
       };
