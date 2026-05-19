@@ -1295,11 +1295,8 @@ function doLogin(){
   var u=$$('login-user').value.trim(),p=$$('login-pass').value;
   var found=users.find(function(x){return x.username===u&&x.password===p;});
   if(!found){sMsg('login-msg','Incorrect username or password','red');return;}
-  _applyLogin(found);
   // Save session to localStorage so refresh doesn't log out
   try{localStorage.setItem(_SESSION_KEY,JSON.stringify({username:found.username,password:found.password}));}catch(e){}
-}
-function _applyLogin(found){
   currentUser=found;
   $$('login-screen').style.display='none';
   $$('main-app').style.display='block';
@@ -1307,21 +1304,8 @@ function _applyLogin(found){
   if(found.role!=='admin'&&found.role!=='manager')$$('nav-security').style.display='none';
   else $$('nav-security').style.display='';
   initApp();
-  // Default to tee sheet tab after login
   var teeBtn=document.querySelector('.nav button:nth-child(2)');
   if(teeBtn)teeBtn.click();
-}
-function _tryRestoreSession(){
-  try{
-    var raw=localStorage.getItem(_SESSION_KEY);
-    if(!raw)return false;
-    var saved=JSON.parse(raw);
-    // Wait until users are loaded (initApp not yet called), so check after a tick
-    var found=users.find(function(x){return x.username===saved.username&&x.password===saved.password;});
-    if(found){_applyLogin(found);return true;}
-    // If not found yet (state not loaded), queue a retry after state loads
-    return false;
-  }catch(e){return false;}
 }
 function doLogout(){
   currentUser=null;
@@ -4330,14 +4314,34 @@ function closeAndClearDay(){
 var _baseInitApp=initApp;
 initApp=function(){
   loadStateAsync().then(function(){
-    // Try to restore saved session now that users are loaded from DB
-    if(!currentUser && _tryRestoreSession()) return; // session restored, _applyLogin calls initApp again
     _baseInitApp();
+    // Always populate settings fields from loaded CFG
     populateSettingsFields();
     if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
     if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
     if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
     _checkDB().then(_showDBStatus);
+    // Restore session AFTER state is loaded (users come from DB)
+    if(!currentUser){
+      try{
+        var raw=localStorage.getItem(_SESSION_KEY);
+        if(raw){
+          var saved=JSON.parse(raw);
+          var found=users.find(function(x){return x.username===saved.username&&x.password===saved.password;});
+          if(found){
+            currentUser=found;
+            $$('login-screen').style.display='none';
+            $$('main-app').style.display='block';
+            $$('hdr-user').textContent=found.name+' ('+(found.role==='admin'?'Admin':found.role)+')';
+            if(found.role!=='admin'&&found.role!=='manager')$$('nav-security').style.display='none';
+            else $$('nav-security').style.display='';
+            // Go to tee sheet tab
+            var teeBtn=document.querySelector('.nav button:nth-child(2)');
+            if(teeBtn)teeBtn.click();
+          }
+        }
+      }catch(e){}
+    }
   });
 };
 
