@@ -224,6 +224,7 @@ tr.unpaid-row{background:#FFF0F0}
   <button onclick="showTab('inventory',this)">📦 Inventory</button>
   <button onclick="showTab('members',this)">👥 Members</button>
   <button onclick="showTab('reports',this)">📊 Reports</button>
+  <button onclick="showTab('timeclock',this)">🕐 Time Clock</button>
   <button onclick="showTab('security',this)" id="nav-security">🔒 Security</button>
   <button onclick="showTab('settings',this)">⚙️ Settings</button>
   <button id="btn-open-day" onclick="doOpenDay()" style="background:#EAF3DE;border-color:#639922;color:#27500A;font-weight:700;margin-left:6px">🟢 Open Day</button>
@@ -659,15 +660,26 @@ tr.unpaid-row{background:#FFF0F0}
           <option value="shift">Cashier shift report</option>
           <option value="cash_reconciliation">Cash Reconciliation (Admin)</option>
           <option value="inventory">Inventory Report</option>
+          <option value="timeclock">Time Clock Report</option>
         </select>
       </div>
-      <div><label>Period A</label>
-        <select id="rpt-a" onchange="runReport()">
-          <option value="today">Today</option><option value="week">This week</option>
-          <option value="month">This month</option><option value="custom">Custom date</option>
+      <div><label>Period</label>
+        <select id="rpt-a" onchange="rptPeriodChange()">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="week">This week</option>
+          <option value="last-week">Last week</option>
+          <option value="month">This month</option>
+          <option value="last-month">Last month</option>
+          <option value="custom">Specific date</option>
+          <option value="range">Date range</option>
         </select>
       </div>
-      <div id="rpt-a-date-wrap" style="display:none"><label>Date A</label><input type="date" id="rpt-a-date" onchange="runReport()"></div>
+      <div id="rpt-a-date-wrap" style="display:none"><label>Date</label><input type="date" id="rpt-a-date" onchange="runReport()"></div>
+      <div id="rpt-range-wrap" style="display:none;gap:6px">
+        <div><label>From</label><input type="date" id="rpt-range-start" onchange="runReport()"></div>
+        <div><label>To</label><input type="date" id="rpt-range-end" onchange="runReport()"></div>
+      </div>
       <div id="rpt-b-wrap" style="display:none"><label>Period B</label>
         <select id="rpt-b" onchange="runReport()">
           <option value="yesterday">Yesterday</option><option value="last-week">Last week</option>
@@ -696,6 +708,43 @@ tr.unpaid-row{background:#FFF0F0}
       <div class="col">
         <div class="stat" style="margin-bottom:8px"><div class="lbl">Cash sales today</div><div class="val" id="r-cash">$0.00</div></div>
         <div class="stat"><div class="lbl">Expected in drawer</div><div class="val" id="r-expected">$0.00</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TIME CLOCK ===== -->
+<div id="tab-timeclock" class="tab">
+  <div class="row">
+    <div class="col" style="max-width:360px">
+      <div class="card">
+        <h3>🕐 Clock In / Out</h3>
+        <div id="tc-status" style="text-align:center;padding:18px 0;font-size:14px;color:#666">Loading...</div>
+        <div class="fg"><label>Employee name</label>
+          <select id="tc-user-sel" style="margin-bottom:8px">
+            <option value="">— Select employee —</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn bg-green" onclick="tcClockIn()" style="flex:1">✓ Clock In</button>
+          <button class="btn bg-red" onclick="tcClockOut()" style="flex:1">✗ Clock Out</button>
+        </div>
+        <div id="tc-msg" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0">Time Clock Log</h3>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="date" id="tc-filter-date" oninput="renderTimeclock()" style="padding:5px 8px;font-size:12px">
+            <button class="btn btn-sm" onclick="$$('tc-filter-date').value='';renderTimeclock()">All</button>
+          </div>
+        </div>
+        <table style="table-layout:fixed">
+          <thead><tr><th>Employee</th><th style="width:140px">Clock In</th><th style="width:140px">Clock Out</th><th style="width:80px">Hours</th><th style="width:50px"></th></tr></thead>
+          <tbody id="tc-log"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1360,6 +1409,7 @@ function openOv(id){$$(id).classList.add('on');}
 function closeOv(id){$$(id).classList.remove('on');}
 function sMsg(id,txt,type){var el=$$(id);if(!el)return;if(!txt){el.innerHTML='';return;}var cls=type==='green'?'m-green':type==='red'?'m-red':type==='amber'?'m-amber':'m-blue';el.innerHTML='<div class="msg '+cls+'">'+txt+'</div>';}
 function buildTimes(){TIMES=[];var p=CFG.teeStart.split(':'),sh=+p[0],sm=+p[1];var p2=CFG.teeEnd.split(':'),eh=+p2[0],em=+p2[1];var cur=sh*60+sm,end=eh*60+em;while(cur<=end){var h=Math.floor(cur/60),m=cur%60;TIMES.push((h<10?'0':'')+h+':'+(m<10?'0':'')+m);cur+=CFG.teeInt;}}
+function fmt12(t){if(!t)return'';var parts=t.split(':');var h=parseInt(parts[0]),m=parseInt(parts[1]||0);var ampm=h>=12?'PM':'AM';var h12=h%12||12;return h12+':'+(m<10?'0':'')+m+' '+ampm;}
 function isMemberExpired(m){
   if(!m.exp) return false;
   return m.exp < todayStr();
@@ -1405,6 +1455,7 @@ function showTab(id,btn){
   if(id==='credit')renderCrAll();
   if(id==='gift')renderGCTable();
   if(id==='settings'){renderTeeCols();renderDiscounts();renderMemTypesList();renderAddonTypesList();renderTeeBlocksList();}
+  if(id==='timeclock'){renderTimeclockUserSel();renderTimeclock();tcUpdateStatus();}
   if(id==='reports'){runReport();updateDrawer();}
   if(id==='security'){renderUsers();}
   if(id==='course')renderCourseFees();
@@ -1896,6 +1947,15 @@ function completeSale(){
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
   updateStats();renderSalesLog();
   if(posMemberId)renderPosMemberBox(posMemberId);
+  // Show change due popup for cash/check overpayment
+  if(_posPayMethod==='cash'){
+    var tendered=parseFloat($$('cash-tendered').value)||0;
+    var change=tendered-tot;
+    if(change>0.001) setTimeout(function(){alert('💵 Change due to customer:\n\n'+C(change));},80);
+  } else if(_posPayMethod==='check'){
+    var chkAmtV=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
+    if(chkAmtV>tot+0.001) setTimeout(function(){alert('🖊 Change due to customer:\n\n'+C(chkAmtV-tot));},80);
+  }
   clearCart();
   if($$('tab-tee').classList.contains('on'))renderTee();
   updateDrawer();
@@ -2199,9 +2259,10 @@ function buildTeeBookMemberSelect(){
   sel.innerHTML='<option value="">— Not a member / type name —</option>'+members.filter(function(m){return m.isMember!==false;}).map(function(m){return'<option value="'+m.id+'">'+m.first+' '+m.last+'</option>';}).join('');
 }
 function openBookModal(date,time,col){
+  if(isTimeBlocked(date,time)){var blocks=getBlocksForDate(date);var reason=blocks.length?blocks[0].reason:'Blocked';alert('This time is blocked:\n'+reason);return;}
   var used=slotsUsed(date,time,col);if(used>=4){alert('This time slot is full.');return;}
   pendingSlot={date:date,time:time,col:col};
-  $$('tee-slot-lbl').textContent=time+' — '+col;
+  $$('tee-slot-lbl').textContent=fmt12(time)+' — '+col;
   $$('tm-name').value='';$$('tm-email').value='';$$('tm-phone').value='';$$('tm-notes').value='';$$('tm-players').value='1';$$('tm-holes').value='18';$$('tm-cart').value='none';
   $$('book-msg').innerHTML='';
   buildTeeBookMemberSelect();
@@ -2426,7 +2487,10 @@ function renderTee(){
   var total=0;
   TIMES.forEach(function(time){
     var isHour=time.slice(-2)==='00';
-    h+='<div class="tee-row" style="grid-template-columns:'+gc+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+time+'</div>';
+    var isBlocked=isTimeBlocked(date,time);
+    var display12=fmt12(time);
+    var blockInfo=isBlocked?getBlocksForDate(date).find(function(b){return b.type==='day'||(time>=b.start&&time<=b.end);}):null;
+    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br><span style="font-size:8px;color:#A32D2D;font-weight:600">🚫</span>':'')+'</div>';
     cols.forEach(function(col){
       var slotBks=Object.entries(bookings).filter(function(e){var b=e[1];return b.date===date&&b.time===time&&b.col===col;});
       var used=slotBks.reduce(function(a,e){return a+parseInt(e[1].players);},0);total+=used;
@@ -2450,8 +2514,8 @@ function renderTee(){
   var dayBks=Object.entries(bookings).filter(function(e){return e[1].date===date;}).sort(function(a,b){return a[1].time.localeCompare(b[1].time);});
   var tl=$$('tee-list');
   if(!dayBks.length){tl.innerHTML='<div style="color:#888;font-size:13px;padding:7px 0">No bookings for this date.</div>';return;}
-  tl.innerHTML='<table style="table-layout:fixed"><thead><tr><th style="width:60px">Time</th><th>Golfers</th><th style="width:68px">Tee</th><th style="width:36px">P</th><th style="width:44px">Holes</th><th style="width:48px">Cart</th><th style="width:130px">Paid status</th><th style="width:82px"></th></tr></thead><tbody>'
-    +dayBks.map(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);var paidList=b.paidNames||[];var statusCell=names.map(function(n){return'<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;font-size:11px">'+n+': '+(paidList.indexOf(n)>=0?'<span class="badge b-green" style="font-size:9px">✓ Paid</span>':'<span class="badge b-amber" style="font-size:9px">Unpaid</span>')+'</div>';}).join('');return'<tr><td style="font-weight:700">'+b.time+'</td><td style="font-size:12px">'+names.join(', ')+(b.notes?'<br><span style="color:#888;font-size:11px">'+b.notes+'</span>':'')+'</td><td>'+b.col+'</td><td>'+b.players+'</td><td>'+b.holes+'</td><td>'+(b.cart==='none'?'—':b.cart)+'</td><td>'+statusCell+'</td><td><button class="btn bg-green btn-sm" onclick="showDetail(\''+key+'\')" style="margin-right:3px">View</button><button class="btn bg-red btn-sm" onclick="if(confirm(\'Cancel?\')){delete bookings[\''+key+'\'];renderTee();}">✕</button></td></tr>';}).join('')+'</tbody></table>';
+  tl.innerHTML='<table style="table-layout:fixed"><thead><tr><th style="width:75px">Time</th><th>Golfers</th><th style="width:68px">Tee</th><th style="width:36px">P</th><th style="width:44px">Holes</th><th style="width:48px">Cart</th><th style="width:130px">Paid status</th><th style="width:82px"></th></tr></thead><tbody>'
+    +dayBks.map(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);var paidList=b.paidNames||[];var statusCell=names.map(function(n){return'<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;font-size:11px">'+n+': '+(paidList.indexOf(n)>=0?'<span class="badge b-green" style="font-size:9px">✓ Paid</span>':'<span class="badge b-amber" style="font-size:9px">Unpaid</span>')+'</div>';}).join('');return'<tr><td style="font-weight:700;font-size:12px">'+fmt12(b.time)+'</td><td style="font-size:12px">'+names.join(', ')+(b.notes?'<br><span style="color:#888;font-size:11px">📝 '+b.notes+'</span>':'')+(b.email?'<br><span style="color:#666;font-size:10px">✉ '+b.email+'</span>':'')+'</td><td>'+b.col+'</td><td>'+b.players+'</td><td>'+b.holes+'</td><td>'+(b.cart==='none'?'—':b.cart)+'</td><td>'+statusCell+'</td><td><button class="btn bg-green btn-sm" onclick="showDetail(\''+key+'\')" style="margin-right:3px">View</button><button class="btn bg-red btn-sm" onclick="if(confirm(\'Cancel?\')){delete bookings[\''+key+'\'];renderTee();}">✕</button></td></tr>';}).join('')+'</tbody></table>';
 }
 
 // ============================================================
@@ -3062,11 +3126,164 @@ function applyGlobalExpiry(){
 // ============================================================
 // REPORTS
 // ============================================================
-function getSalesFor(period,dateEl){var now=new Date();function sd(ts,str){return new Date(ts).toDateString()===str;}if(period==='today')return sales.filter(function(s){return sd(s.ts,now.toDateString());});if(period==='yesterday')return sales.filter(function(s){return sd(s.ts,new Date(now-86400000).toDateString());});if(period==='week'){var wd=now.getDay(),start=new Date(now);start.setDate(now.getDate()-wd);start.setHours(0,0,0,0);var end=new Date(start);end.setDate(start.getDate()+6);end.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=start&&d<=end;});}if(period==='last-week'){var ref=new Date(now);ref.setDate(now.getDate()-7);var wd2=ref.getDay(),s2=new Date(ref);s2.setDate(ref.getDate()-wd2);s2.setHours(0,0,0,0);var e2=new Date(s2);e2.setDate(s2.getDate()+6);e2.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=s2&&d<=e2;});}if(period==='month')return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});if(period==='last-month'){var lm=now.getMonth()===0?11:now.getMonth()-1,ly=now.getMonth()===0?now.getFullYear()-1:now.getFullYear();return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===lm&&d.getFullYear()===ly;});}if(period==='custom'){var cd=$$(dateEl)?$$(dateEl).value:'';if(!cd)return[];var target=new Date(cd+'T12:00:00').toDateString();return sales.filter(function(s){return new Date(s.ts).toDateString()===target;});}return sales;}
-function runReport(){var type=$$('rpt-type').value,pa=$$('rpt-a').value,isComp=type==='comparison';$$('rpt-b-wrap').style.display=isComp?'block':'none';$$('rpt-a-date-wrap').style.display=pa==='custom'?'block':'none';var pb=$$('rpt-b')?$$('rpt-b').value:'yesterday';$$('rpt-b-date-wrap').style.display=(isComp&&pb==='custom')?'block':'none';
-  // Special reports handled separately
+function rptPeriodChange(){
+  var pa=$$('rpt-a').value;
+  var isComp=$$('rpt-type').value==='comparison';
+  $$('rpt-a-date-wrap').style.display=pa==='custom'?'block':'none';
+  $$('rpt-range-wrap').style.display=pa==='range'?'flex':'none';
+  $$('rpt-b-wrap').style.display=isComp?'block':'none';
+  runReport();
+}
+function getSalesFor(period,dateEl){
+  var now=new Date();
+  function sd(ts,str){return new Date(ts).toDateString()===str;}
+  if(period==='today')return sales.filter(function(s){return sd(s.ts,now.toDateString());});
+  if(period==='yesterday')return sales.filter(function(s){return sd(s.ts,new Date(now-86400000).toDateString());});
+  if(period==='week'){var wd=now.getDay(),start=new Date(now);start.setDate(now.getDate()-wd);start.setHours(0,0,0,0);var end=new Date(start);end.setDate(start.getDate()+6);end.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=start&&d<=end;});}
+  if(period==='last-week'){var ref=new Date(now);ref.setDate(now.getDate()-7);var wd2=ref.getDay(),s2=new Date(ref);s2.setDate(ref.getDate()-wd2);s2.setHours(0,0,0,0);var e2=new Date(s2);e2.setDate(s2.getDate()+6);e2.setHours(23,59,59,999);return sales.filter(function(s){var d=new Date(s.ts);return d>=s2&&d<=e2;});}
+  if(period==='month')return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});
+  if(period==='last-month'){var lm=now.getMonth()===0?11:now.getMonth()-1,ly=now.getMonth()===0?now.getFullYear()-1:now.getFullYear();return sales.filter(function(s){var d=new Date(s.ts);return d.getMonth()===lm&&d.getFullYear()===ly;});}
+  if(period==='custom'){var cd=$$(dateEl)?$$(dateEl).value:'';if(!cd)return[];var target=new Date(cd+'T12:00:00').toDateString();return sales.filter(function(s){return new Date(s.ts).toDateString()===target;});}
+  if(period==='range'){
+    var rs=$$('rpt-range-start')?$$('rpt-range-start').value:'';
+    var re=$$('rpt-range-end')?$$('rpt-range-end').value:'';
+    if(!rs||!re)return[];
+    var rStart=new Date(rs+'T00:00:00');var rEnd=new Date(re+'T23:59:59');
+    return sales.filter(function(s){var d=new Date(s.ts);return d>=rStart&&d<=rEnd;});
+  }
+  return sales;
+}
+
+// ============================================================
+// TIME CLOCK
+// ============================================================
+var timeclockEntries=[]; // [{id,user,clockIn,clockOut}]
+var _nextTcId=1;
+var _activeClock=null; // {id,user,clockIn}
+
+function _buildState(){
+  return {
+    sales:sales,members:members,products:products,bookings:bookings,
+    giftCerts:giftCerts,discounts:discounts,memTypes:memTypes,
+    addonTypes:addonTypes,courseFees:courseFees,tournaments:tournaments,
+    CFG:CFG,nextMid:nextMid,nextPid:nextPid,nextTid:nextTid,nextCfId:nextCfId,
+    eodHistory:eodHistory,teeBlocks:teeBlocks,
+    timeclockEntries:timeclockEntries,_nextTcId:_nextTcId,
+    users:users.filter(function(u){return u.role!=='admin';}),
+    savedAt:Date.now()
+  };
+}
+// ============================================================
+// TIME CLOCK FUNCTIONS
+// ============================================================
+function renderTimeclockUserSel(){
+  var sel=$$('tc-user-sel');if(!sel)return;
+  var names=[...new Set(users.map(function(u){return u.name;}).concat(timeclockEntries.map(function(e){return e.user;})))].filter(Boolean).sort();
+  sel.innerHTML='<option value="">— Select employee —</option>'+names.map(function(n){return'<option value="'+n+'">'+n+'</option>';}).join('');
+  if(currentUser)sel.value=currentUser.name;
+}
+function tcUpdateStatus(){
+  var el=$$('tc-status');if(!el)return;
+  var who=$$('tc-user-sel')?$$('tc-user-sel').value:'';
+  if(!who){el.textContent='Select an employee above';return;}
+  var active=timeclockEntries.find(function(e){return e.user===who&&!e.clockOut;});
+  if(active){
+    var dur=Math.round((Date.now()-active.clockIn)/60000);
+    el.innerHTML='<span class="badge b-green" style="font-size:13px;padding:6px 12px">⏱ '+who+' is clocked in</span><br><span style="font-size:12px;color:#666;margin-top:5px;display:block">'+Math.floor(dur/60)+'h '+dur%60+'m so far</span>';
+  } else {
+    el.innerHTML='<span class="badge b-gray" style="font-size:13px;padding:6px 12px">'+who+' is not clocked in</span>';
+  }
+}
+function tcClockIn(){
+  var who=$$('tc-user-sel')?$$('tc-user-sel').value:'';
+  if(!who){sMsg('tc-msg','Select an employee first','red');return;}
+  var active=timeclockEntries.find(function(e){return e.user===who&&!e.clockOut;});
+  if(active){sMsg('tc-msg',who+' is already clocked in','red');return;}
+  timeclockEntries.push({id:_nextTcId++,user:who,clockIn:Date.now(),clockOut:null});
+  renderTimeclock();tcUpdateStatus();saveState();
+  sMsg('tc-msg',who+' clocked in at '+new Date().toLocaleTimeString([],({hour:'2-digit',minute:'2-digit'})),'green');
+}
+function tcClockOut(){
+  var who=$$('tc-user-sel')?$$('tc-user-sel').value:'';
+  if(!who){sMsg('tc-msg','Select an employee first','red');return;}
+  var active=timeclockEntries.find(function(e){return e.user===who&&!e.clockOut;});
+  if(!active){sMsg('tc-msg',who+' is not currently clocked in','red');return;}
+  active.clockOut=Date.now();
+  renderTimeclock();tcUpdateStatus();saveState();
+  var mins=Math.round((active.clockOut-active.clockIn)/60000);
+  sMsg('tc-msg',who+' clocked out. Time: '+Math.floor(mins/60)+'h '+mins%60+'m','green');
+}
+function renderTimeclock(){
+  var tb=$$('tc-log');if(!tb)return;
+  var filterDate=$$('tc-filter-date')?$$('tc-filter-date').value:'';
+  var list=timeclockEntries.slice().reverse().filter(function(e){
+    if(!filterDate)return true;
+    return new Date(e.clockIn).toISOString().split('T')[0]===filterDate;
+  });
+  if(!list.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#888;padding:12px;font-size:12px">No entries'+(filterDate?' for '+filterDate:'')+'</td></tr>';return;}
+  tb.innerHTML=list.map(function(e){
+    var inStr=new Date(e.clockIn).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    var outStr=e.clockOut?new Date(e.clockOut).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'<span class="badge b-green">Still in</span>';
+    var mins=e.clockOut?Math.round((e.clockOut-e.clockIn)/60000):Math.round((Date.now()-e.clockIn)/60000);
+    var hrs=(mins/60).toFixed(2);
+    return'<tr><td style="font-weight:600;font-size:12px">'+e.user+'</td>'
+      +'<td style="font-size:11px">'+inStr+'</td>'
+      +'<td style="font-size:11px">'+outStr+'</td>'
+      +'<td style="font-size:12px;font-weight:600">'+hrs+'h</td>'
+      +'<td><button class="btn bg-red btn-sm" onclick="tcDelete('+e.id+')">✕</button></td>'
+      +'</tr>';
+  }).join('');
+}
+function tcDelete(id){
+  if(!confirm('Delete this time entry?'))return;
+  timeclockEntries=timeclockEntries.filter(function(e){return e.id!==id;});
+  renderTimeclock();saveState();
+}
+function runTimeclockReport(){
+  var pa=$$('rpt-a').value;
+  var entries;
+  if(pa==='today'){var ts=new Date().toDateString();entries=timeclockEntries.filter(function(e){return new Date(e.clockIn).toDateString()===ts;});}
+  else if(pa==='range'){
+    var rs=$$('rpt-range-start')?$$('rpt-range-start').value:'';
+    var re=$$('rpt-range-end')?$$('rpt-range-end').value:'';
+    if(!rs||!re){$$('rpt-output').innerHTML='<div style="color:#888">Select a date range above</div>';return;}
+    var rStart=new Date(rs+'T00:00:00'),rEnd=new Date(re+'T23:59:59');
+    entries=timeclockEntries.filter(function(e){var d=new Date(e.clockIn);return d>=rStart&&d<=rEnd;});
+  } else {
+    entries=timeclockEntries.slice();
+  }
+  if(!entries.length){$$('rpt-output').innerHTML='<div style="color:#888;font-size:13px">No time clock entries for the selected period.</div>';return;}
+  // Group by user
+  var byUser={};
+  entries.forEach(function(e){
+    if(!byUser[e.user])byUser[e.user]={name:e.user,entries:[],totalMins:0};
+    var mins=e.clockOut?Math.round((e.clockOut-e.clockIn)/60000):0;
+    byUser[e.user].entries.push(e);
+    byUser[e.user].totalMins+=mins;
+  });
+  var html='<table><thead><tr><th>Employee</th><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Hours</th></tr></thead><tbody>';
+  Object.values(byUser).forEach(function(u){
+    u.entries.forEach(function(e,i){
+      var inStr=new Date(e.clockIn).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      var outStr=e.clockOut?new Date(e.clockOut).toLocaleString([],{hour:'2-digit',minute:'2-digit'}):'Still in';
+      var mins=e.clockOut?Math.round((e.clockOut-e.clockIn)/60000):0;
+      html+='<tr'+(i===0?' style="border-top:2px solid #ddd"':'')+'>'+
+        (i===0?'<td rowspan="'+u.entries.length+'" style="font-weight:700;vertical-align:top">'+u.name+'</td>':'')
+        +'<td style="font-size:12px">'+new Date(e.clockIn).toLocaleDateString()+'</td>'
+        +'<td style="font-size:12px">'+inStr+'</td>'
+        +'<td style="font-size:12px">'+outStr+'</td>'
+        +'<td style="font-size:12px;font-weight:600">'+(mins?(mins/60).toFixed(2)+'h':'—')+'</td></tr>';
+    });
+    html+='<tr style="background:#f8f8f4;font-weight:700"><td colspan="4" style="text-align:right;font-size:12px">'+u.name+' total:</td><td style="font-size:13px">'+(u.totalMins/60).toFixed(2)+'h</td></tr>';
+  });
+  html+='</tbody></table>';
+  $$('rpt-output').innerHTML=html;
+}
+
+function runReport(){var type=$$('rpt-type').value,pa=$$('rpt-a').value,isComp=type==='comparison';$$('rpt-b-wrap').style.display=isComp?'block':'none';$$('rpt-a-date-wrap').style.display=pa==='custom'?'block':'none';$$('rpt-range-wrap').style.display=pa==='range'?'flex':'none';var pb=$$('rpt-b')?$$('rpt-b').value:'yesterday';$$('rpt-b-date-wrap').style.display=(isComp&&pb==='custom')?'block':'none';
   if(type==='cash_reconciliation'){runCashReconReport();return;}
   if(type==='inventory'){runInventoryReport();return;}
+  if(type==='timeclock'){runTimeclockReport();return;}
   var sA=getSalesFor(pa,'rpt-a-date');var html='';if(type==='summary'){var rev=sA.reduce(function(a,s){return a+s.total;},0);var refAmt=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">Transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Gross revenue</div><div class="val">'+C(rev)+'</div></div><div class="stat"><div class="lbl">Refunds</div><div class="val">'+C(Math.abs(refAmt))+'</div></div><div class="stat"><div class="lbl">Net revenue</div><div class="val">'+C(rev+refAmt)+'</div></div></div>';}else if(type==='rounds'){var bkArr=Object.values(bookings);var r18=bkArr.filter(function(b){return b.holes==='18';}).reduce(function(a,b){return a+parseInt(b.players);},0);var r9=bkArr.filter(function(b){return b.holes==='9';}).reduce(function(a,b){return a+parseInt(b.players);},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">18-hole rounds</div><div class="val">'+r18+'</div></div><div class="stat"><div class="lbl">9-hole rounds</div><div class="val">'+r9+'</div></div><div class="stat"><div class="lbl">Total players</div><div class="val">'+(r18+r9)+'</div></div><div class="stat"><div class="lbl">Bookings</div><div class="val">'+Object.keys(bookings).length+'</div></div></div>';}else if(type==='category'){var cats={};sA.forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)cats[e[0]]=(cats[e[0]]||0)+e[1];});});var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];});html=sorted.length?sorted.map(function(e){var max=Math.max.apply(null,sorted.map(function(x){return x[1];}));var pct=Math.round(e[1]/max*100);return'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px"><span>'+e[0]+'</span><span style="font-weight:700">'+C(e[1])+'</span></div><div class="pbar" style="height:8px"><div class="pfill" style="width:'+pct+'%;background:#185FA5"></div></div></div>';}).join(''):'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='method'){var methods={};sA.filter(function(s){return s.total>0;}).forEach(function(s){methods[s.method]=(methods[s.method]||0)+s.total;});html=Object.keys(methods).length?'<table><thead><tr><th>Method</th><th>Revenue</th><th>Count</th></tr></thead><tbody>'+Object.entries(methods).map(function(e){return'<tr><td><span class="badge b-blue">'+e[0]+'</span></td><td style="font-weight:700">'+C(e[1])+'</td><td>'+sA.filter(function(s){return s.method===e[0]&&s.total>0;}).length+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='comparison'){var sB=getSalesFor($$('rpt-b').value,'rpt-b-date');var revA=sA.reduce(function(a,s){return a+Math.max(0,s.total);},0);var revB=sB.reduce(function(a,s){return a+Math.max(0,s.total);},0);var diff=revA-revB,pctChg=revB>0?((diff/revB)*100).toFixed(1):null;html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px"><div class="stat"><div class="lbl">Period A — transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period B — transactions</div><div class="val">'+sB.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period A — revenue</div><div class="val">'+C(revA)+'</div></div><div class="stat"><div class="lbl">Period B — revenue</div><div class="val">'+C(revB)+'</div></div></div><div class="msg '+(diff>=0?'m-green':'m-red')+'">Net change: <strong>'+(diff>=0?'+':'')+C(diff)+'</strong>'+(pctChg?' ('+(diff>=0?'+':'')+pctChg+'%)':'')+'</div>';}else if(type==='membership'){var ms=sA.filter(function(s){return s.items.toLowerCase().indexOf('membership')>=0;});html=ms.length?'<table><thead><tr><th>Time</th><th>Member</th><th>Method</th><th>Amount</th></tr></thead><tbody>'+ms.map(function(s){return'<tr><td>'+s.time+'</td><td style="font-size:12px">'+s.items+'</td><td><span class="badge b-blue">'+s.method+'</span></td><td style="font-weight:700">'+C(s.total)+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No membership payments in selected period.</div>';}$$('rpt-output').innerHTML=html;}
 
 function runCashReconReport(){
@@ -3092,18 +3309,26 @@ function runCashReconReport(){
 }
 
 function runInventoryReport(){
-  var html='<div style="font-size:12px;color:#666;margin-bottom:8px">Fill in the Actual Count column before printing. Last Cost shows the most recent received shipment cost.</div>'
-    +'<table><thead><tr><th>Item</th><th>Category</th><th style="width:80px">On Hand</th><th style="width:90px">Actual Count</th><th style="width:90px">Last Cost</th></tr></thead><tbody>'
+  var html='<div style="font-size:12px;color:#666;margin-bottom:8px">Fill in Actual Count before printing. Last Cost reflects most recent received shipment. Total Cost = Actual Count × Last Cost.</div>'
+    +'<table><thead><tr><th>Item</th><th>Category</th><th style="width:80px">On Hand</th><th style="width:90px">Actual Count</th><th style="width:90px">Last Cost</th><th style="width:100px">Total Cost</th></tr></thead><tbody>'
     +products.map(function(p){
       return'<tr><td style="font-size:12px;font-weight:600">'+p.name+'<br><span style="font-size:10px;color:#888;font-weight:400">'+p.sku+'</span></td>'
         +'<td style="font-size:12px">'+p.cat+'</td>'
         +'<td style="text-align:center;font-weight:700">'+(p.stock>=999?'∞':p.stock)+'</td>'
-        +'<td><input type="number" min="0" placeholder="Count" style="width:74px;padding:4px 6px;font-size:12px;border:1px solid #ddd;border-radius:5px" data-pid="'+p.id+'"></td>'
+        +'<td><input type="number" min="0" placeholder="Count" style="width:74px;padding:4px 6px;font-size:12px;border:1px solid #ddd;border-radius:5px" data-pid="'+p.id+'" oninput="invRptCalcTotal(this,'+( p.lastCost||0)+')" class="inv-actual-count"></td>'
         +'<td style="font-size:12px;color:#666">'+(p.lastCost?C(p.lastCost):'—')+'</td>'
+        +'<td style="font-size:12px;font-weight:600" id="inv-total-'+p.id+'">—</td>'
         +'</tr>';
     }).join('')
-    +'</tbody></table>';
+    +'</tbody></table>'
+    +'<div style="margin-top:10px;font-size:11px;color:#888">Enter Actual Count values above, then print.</div>';
   $$('rpt-output').innerHTML=html;
+}
+function invRptCalcTotal(input,lastCost){
+  var qty=parseInt(input.value)||0;
+  var pid=input.dataset.pid;
+  var el=document.getElementById('inv-total-'+pid);
+  if(el)el.textContent=qty>0&&lastCost>0?C(qty*lastCost):'—';
 }
 function updateDrawer(){var cashSales=sales.filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);var opening=parseFloat($$('drawer-open')?$$('drawer-open').value:0)||0;if($$('r-cash'))$$('r-cash').textContent=C(cashSales);if($$('r-expected'))$$('r-expected').textContent=C(opening+cashSales);}
 function calcDrawer(){var opening=parseFloat($$('drawer-open').value)||0;var closing=parseFloat($$('drawer-close').value)||0;var cashSales=sales.filter(function(s){return s.method==='cash'&&s.total>0;}).reduce(function(a,s){return a+s.total;},0);var expected=opening+cashSales,diff=closing-expected;$$('drawer-result').innerHTML='<div class="msg '+(Math.abs(diff)<0.01?'m-green':diff>0?'m-blue':'m-red')+'">Opening: '+C(opening)+' + Cash sales: '+C(cashSales)+' = Expected: '+C(expected)+'<br>Counted: '+C(closing)+' &nbsp;·&nbsp; <strong>'+(diff>=0?'Over':'Short')+' by: '+C(Math.abs(diff))+'</strong></div>';}
@@ -3383,19 +3608,6 @@ async function _checkDB(){
   return _dbAvailable;
 }
 
-// Build the full state object
-function _buildState(){
-  return {
-    sales:sales, members:members, products:products, bookings:bookings,
-    giftCerts:giftCerts, discounts:discounts, memTypes:memTypes,
-    addonTypes:addonTypes, courseFees:courseFees, tournaments:tournaments,
-    CFG:CFG, nextMid:nextMid, nextPid:nextPid, nextTid:nextTid, nextCfId:nextCfId,
-    eodHistory:eodHistory, teeBlocks:teeBlocks,
-    users:users.filter(function(u){return u.role!=='admin';}),
-    savedAt:Date.now()
-  };
-}
-
 // Apply a loaded state object to all variables
 function _applyState(s){
   if(s.sales)sales=s.sales;
@@ -3410,6 +3622,8 @@ function _applyState(s){
   if(s.tournaments)tournaments=s.tournaments;
   if(s.eodHistory)eodHistory=s.eodHistory;
   if(s.teeBlocks)teeBlocks=s.teeBlocks;
+  if(s.timeclockEntries)timeclockEntries=s.timeclockEntries;
+  if(s._nextTcId)_nextTcId=s._nextTcId;
   if(s.CFG){
     // Deep merge CFG — preserve all saved values including nested prices
     Object.keys(s.CFG).forEach(function(k){
