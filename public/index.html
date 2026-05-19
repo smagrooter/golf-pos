@@ -1961,19 +1961,24 @@ function completeSale(){
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
   updateStats();renderSalesLog();
   if(posMemberId)renderPosMemberBox(posMemberId);
-  // Show change due popup for cash/check overpayment
+  // Capture change amounts BEFORE clearCart wipes the input fields
+  var _changeDue = 0;
+  var _changeMethod = '';
   if(_posPayMethod==='cash'){
-    var tendered=parseFloat($$('cash-tendered').value)||0;
-    var change=tendered-tot;
-    if(change>0.001) setTimeout(function(){alert('💵 Change due to customer:\n\n'+C(change));},80);
+    var _tendered=parseFloat($$('cash-tendered').value)||0;
+    if(_tendered > tot+0.001){ _changeDue=_tendered-tot; _changeMethod='💵 Cash'; }
   } else if(_posPayMethod==='check'){
-    var chkAmtV=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
-    if(chkAmtV>tot+0.001) setTimeout(function(){alert('🖊 Change due to customer:\n\n'+C(chkAmtV-tot));},80);
+    var _chkAmt=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
+    if(_chkAmt > tot+0.001){ _changeDue=_chkAmt-tot; _changeMethod='🖊 Check'; }
   }
   clearCart();
   if($$('tab-tee').classList.contains('on'))renderTee();
   updateDrawer();
   sMsg('sale-msg','Sale complete! '+C(tot),'green');
+  // Show change due popup now that clearCart has run
+  if(_changeDue>0.001){
+    setTimeout(function(){alert(_changeMethod+' change due to customer:\n\n'+C(_changeDue));},100);
+  }
   // Print receipt if checkbox is checked
   if($$('print-receipt-chk')&&$$('print-receipt-chk').checked){
     setTimeout(function(){printReceiptNow(items,method,tot,taxOn?tot-sub:0);},150);
@@ -5401,5 +5406,39 @@ saveTournament = function(){
   $$('tourn-modal-hdr').innerHTML='Create Tournament <button class="btn btn-sm" onclick="closeOv(\'ov-tourn-add\')">&#x2715;</button>';
 };
 
+
+
+// ============================================================
+// STARTUP — restore session or show login screen
+// ============================================================
+(function startup(){
+  loadStateAsync().then(function(){
+    try{
+      var raw=localStorage.getItem(_SESSION_KEY);
+      if(raw){
+        var saved=JSON.parse(raw);
+        var found=users.find(function(x){return x.username===saved.username&&x.password===saved.password;});
+        if(found){
+          currentUser=found;
+          $$('login-screen').style.display='none';
+          $$('main-app').style.display='block';
+          $$('hdr-user').textContent=found.name+' ('+(found.role==='admin'?'Admin':found.role)+')';
+          if(found.role!=='admin'&&found.role!=='manager')$$('nav-security').style.display='none';
+          else $$('nav-security').style.display='';
+          _baseInitApp();
+          populateSettingsFields();
+          if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
+          if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
+          if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
+          _checkDB().then(_showDBStatus);
+          var teeBtn=document.querySelector('.nav button:nth-child(2)');
+          if(teeBtn)teeBtn.click();
+          return;
+        }
+      }
+    }catch(e){}
+    // No saved session — login screen stays visible
+  });
+})();
 
 </script>
