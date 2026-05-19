@@ -344,12 +344,21 @@ tr.unpaid-row{background:#FFF0F0}
           <span id="change-due" style="font-size:13px;font-weight:700;color:#27500A"></span>
         </div>
 
+        <!-- Card amount row -->
+        <div id="pmb-credit-row" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Amount charged ($)</label>
+          <input type="number" id="card-amount" placeholder="0.00" step="0.01" oninput="calcChange()" style="width:120px;padding:6px 9px;font-size:13px">
+          <span id="card-change-due" style="font-size:13px;font-weight:700;color:#27500A"></span>
+          <span style="font-size:11px;color:#888">(increase for cash back)</span>
+        </div>
+
         <!-- Check number row -->
         <div id="pmb-check-row" style="display:none;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center">
           <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Check #</label>
           <input id="check-number" placeholder="e.g. 1042" style="width:110px;padding:6px 9px;font-family:monospace;font-size:13px" oninput="checkCompleteBtn()">
           <label style="margin:0;font-size:12px;white-space:nowrap;color:#666">Amount ($)</label>
-          <input type="number" id="check-amount" placeholder="0.00" step="0.01" style="width:100px;padding:6px 9px;font-size:13px" oninput="checkCompleteBtn()">
+          <input type="number" id="check-amount" placeholder="0.00" step="0.01" style="width:100px;padding:6px 9px;font-size:13px" oninput="calcChange()">
+          <span id="check-change-due" style="font-size:13px;font-weight:700;color:#27500A"></span>
         </div>
 
         <!-- Store credit row -->
@@ -1684,7 +1693,7 @@ function addCustom(name,price,qty,cat,teeKey,memberId){
 function removeItem(cid){cart=cart.filter(function(x){return x.cid!==cid;});calcCart();}
 function setItemQty(cid,v){var i=cart.find(function(x){return x.cid===cid;});if(i){i.qty=Math.max(1,parseInt(v)||1);calcCart();}}
 function setItemPrice(cid,v){var i=cart.find(function(x){return x.cid===cid;});if(i){i.price=parseFloat(v)||0;calcCart();}}
-function clearCart(){cart=[];splits=[];renderSplits();calcCart();$$('cash-tendered').value='';$$('change-due').textContent='';}
+function clearCart(){cart=[];splits=[];renderSplits();calcCart();$$('cash-tendered').value='';$$('change-due').textContent='';if($$('card-amount'))$$('card-amount').value='';if($$('card-change-due'))$$('card-change-due').textContent='';if($$('check-amount'))$$('check-amount').value='';if($$('check-change-due'))$$('check-change-due').textContent='';}
 
 var TAX_EXEMPT_CATS=['Course Fees','Fees','Tournament','Membership','Gift Cert','Greens Fees'];
 function isTaxable(item){
@@ -1738,15 +1747,43 @@ function calcCart(){
       +'</div>';
   }).join('')+'</div>';
   updateSplitInfo();calcChange();checkCompleteBtn();
+  // Keep card amount in sync with total when card is selected
+  if(_posPayMethod==='credit'){
+    var tot2=parseFloat(($$('cart-total').textContent||'0').replace(/[^0-9.]/g,''))||0;
+    var ca=$$('card-amount');
+    if(ca&&tot2>0&&(!ca.value||parseFloat(ca.value)===0))ca.value=tot2.toFixed(2);
+  }
 }
 function adjQty(cid,d){var i=cart.find(function(x){return x.cid===cid;});if(i){i.qty=Math.max(1,i.qty+d);calcCart();}}
 function calcChange(){
   var tot=parseFloat(($$('cart-total').textContent||'0').replace(/[^0-9.]/g,''))||0;
-  var tendered=parseFloat($$('cash-tendered').value)||0;
-  var el=$$('change-due');
-  if(!tendered||!tot){el.textContent='';checkCompleteBtn();return;}
-  if(tendered<tot){el.textContent='Short: '+C(tot-tendered);el.style.color='#791F1F';}
-  else{el.textContent='Change: '+C(tendered-tot);el.style.color='#27500A';}
+  // Cash
+  if(_posPayMethod==='cash'){
+    var tendered=parseFloat($$('cash-tendered').value)||0;
+    var el=$$('change-due');
+    if(!tendered||!tot){el.textContent='';checkCompleteBtn();return;}
+    if(tendered<tot){el.textContent='Short: '+C(tot-tendered);el.style.color='#791F1F';}
+    else{el.textContent='Change: '+C(tendered-tot);el.style.color='#27500A';}
+  }
+  // Card
+  if(_posPayMethod==='credit'){
+    var cardAmt=parseFloat($$('card-amount')?$$('card-amount').value:0)||0;
+    var cel=$$('card-change-due');
+    if(cel){
+      if(!cardAmt||cardAmt<=tot){cel.textContent='';  }
+      else{cel.textContent='Cash back: '+C(cardAmt-tot);cel.style.color='#185FA5';}
+    }
+  }
+  // Check
+  if(_posPayMethod==='check'){
+    var chkAmt=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
+    var chkEl=$$('check-change-due');
+    if(chkEl){
+      if(!chkAmt||!tot){chkEl.textContent='';}
+      else if(chkAmt<tot){chkEl.textContent='Short: '+C(tot-chkAmt);chkEl.style.color='#791F1F';}
+      else{chkEl.textContent='Change: '+C(chkAmt-tot);chkEl.style.color='#27500A';}
+    }
+  }
   checkCompleteBtn();
 }
 
@@ -1867,7 +1904,12 @@ function checkCompleteBtn(){
     ready=paid>=tot-0.001;
   } else if(_posPayMethod==='check'){
     var chkNum=$$('check-number')?$$('check-number').value.trim():'';
-    ready=chkNum.length>0;
+    var chkAmt=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
+    ready=chkNum.length>0&&(chkAmt>=tot-0.001||tot===0);
+    if(tot===0&&cart.length>0)ready=chkNum.length>0;
+  } else if(_posPayMethod==='credit'){
+    var cardAmt=parseFloat($$('card-amount')?$$('card-amount').value:0)||0;
+    ready=cardAmt>=tot-0.001&&cardAmt>0;
     if(tot===0&&cart.length>0)ready=true;
   } else {
     var tendered=parseFloat($$('cash-tendered').value)||0;
@@ -1961,7 +2003,7 @@ function completeSale(){
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
   updateStats();renderSalesLog();
   if(posMemberId)renderPosMemberBox(posMemberId);
-  // Capture change amounts BEFORE clearCart wipes the input fields
+  // Capture change/cashback amounts BEFORE clearCart wipes the input fields
   var _changeDue = 0;
   var _changeMethod = '';
   if(_posPayMethod==='cash'){
@@ -1970,6 +2012,9 @@ function completeSale(){
   } else if(_posPayMethod==='check'){
     var _chkAmt=parseFloat($$('check-amount')?$$('check-amount').value:0)||0;
     if(_chkAmt > tot+0.001){ _changeDue=_chkAmt-tot; _changeMethod='🖊 Check'; }
+  } else if(_posPayMethod==='credit'){
+    var _cardAmt=parseFloat($$('card-amount')?$$('card-amount').value:0)||0;
+    if(_cardAmt > tot+0.001){ _changeDue=_cardAmt-tot; _changeMethod='💳 Card cash back'; }
   }
   clearCart();
   if($$('tab-tee').classList.contains('on'))renderTee();
@@ -1981,10 +2026,10 @@ function completeSale(){
   }
   // Print receipt if checkbox is checked
   if($$('print-receipt-chk')&&$$('print-receipt-chk').checked){
-    setTimeout(function(){printReceiptNow(items,method,tot,taxOn?tot-sub:0);},150);
+    setTimeout(function(){printReceiptNow(items,method,tot,taxOn?tot-sub:0,_changeDue,_changeMethod);},150);
   }
 }
-function printReceiptNow(itemsStr, method, total, taxAmt){
+function printReceiptNow(itemsStr, method, total, taxAmt, changeDue, changeMethod){
   var sub=total-taxAmt;
   var lines=itemsStr.split(', ');
   var now=new Date();
@@ -1997,6 +2042,7 @@ function printReceiptNow(itemsStr, method, total, taxAmt){
     +'.center{text-align:center}.bold{font-weight:700}.div{border-top:1px dashed #000;margin:8px 0}'
     +'.row{display:flex;justify-content:space-between;margin:3px 0}'
     +'.total{font-size:15px;font-weight:700}'
+    +'.change{font-size:14px;font-weight:700;background:#f0f0f0;padding:5px;border-radius:4px;margin:4px 0}'
     +'@media print{button{display:none}@page{margin:0;size:80mm auto}}'
     +'</style></head><body>'
     +'<div class="center bold" style="font-size:16px;margin-bottom:4px">'+CFG.courseName+'</div>'
@@ -2014,6 +2060,7 @@ function printReceiptNow(itemsStr, method, total, taxAmt){
     +'<div class="div"></div>'
     +'<div class="row total"><span>TOTAL</span><span>'+C(total)+'</span></div>'
     +'<div class="row" style="margin-top:5px"><span>Payment</span><span>'+method+'</span></div>'
+    +(changeDue>0.001?'<div class="div"></div><div class="row change"><span>'+(changeMethod||'Change due')+'</span><span>'+C(changeDue)+'</span></div>':'')
     +'<div class="div"></div>'
     +'<div class="center" style="margin-top:10px;font-size:11px">Thank you for playing!</div>'
     +'<div class="center" style="font-size:11px">See you on the course ⛳</div>'
@@ -5239,11 +5286,20 @@ function setPosPayMethod(method){
     var b=$$(ids[m]);if(!b)return;
     b.classList.toggle('pay-on',m===method);
   });
-  var cashRow=$$('pmb-cash-row'),scRow=$$('pmb-sc-row'),gcRow=$$('pmb-gc-row'),checkRow=$$('pmb-check-row');
-  if(cashRow)  cashRow.style.display  = method==='cash'          ? 'flex'  : 'none';
-  if(scRow)    scRow.style.display    = method==='store_credit'  ? 'block' : 'none';
-  if(gcRow)    gcRow.style.display    = method==='gift_cert'     ? 'block' : 'none';
-  if(checkRow) checkRow.style.display = method==='check'         ? 'flex'  : 'none';
+  var cashRow=$$('pmb-cash-row'),creditRow=$$('pmb-credit-row'),scRow=$$('pmb-sc-row'),gcRow=$$('pmb-gc-row'),checkRow=$$('pmb-check-row');
+  if(cashRow)   cashRow.style.display   = method==='cash'         ? 'flex'  : 'none';
+  if(creditRow) creditRow.style.display = method==='credit'       ? 'flex'  : 'none';
+  if(scRow)     scRow.style.display     = method==='store_credit' ? 'block' : 'none';
+  if(gcRow)     gcRow.style.display     = method==='gift_cert'    ? 'block' : 'none';
+  if(checkRow)  checkRow.style.display  = method==='check'        ? 'flex'  : 'none';
+  // Auto-populate card amount with current total
+  if(method==='credit'){
+    var tot=parseFloat(($$('cart-total').textContent||'0').replace(/[^0-9.]/g,''))||0;
+    var ca=$$('card-amount');
+    if(ca&&tot>0)ca.value=tot.toFixed(2);
+    if($$('card-change-due'))$$('card-change-due').textContent='';
+  }
+  // Populate store credit member select
   if(method==='store_credit'){
     var sel=$$('pmb-sc-member');
     if(sel){
