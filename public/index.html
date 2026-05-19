@@ -372,6 +372,12 @@ tr.unpaid-row{background:#FFF0F0}
 
         <hr class="div">
 
+        <!-- Print receipt toggle -->
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:6px 10px;background:#f8f8f4;border-radius:8px">
+          <input type="checkbox" id="print-receipt-chk" checked style="width:16px;height:16px;cursor:pointer;accent-color:#27500A">
+          <label for="print-receipt-chk" style="font-size:13px;font-weight:600;cursor:pointer;margin:0;user-select:none">🖨 Print receipt after sale</label>
+        </div>
+
         <!-- Action buttons -->
         <div class="pos-action-row" style="display:flex;gap:6px;margin-bottom:8px">
           <button id="complete-sale-btn" class="btn-complete-v11" onclick="completeSale()" disabled>✓ Complete Sale</button>
@@ -1283,11 +1289,17 @@ var users = [
 ];
 var nextUid = 2;
 var currentUser = null;
+var _SESSION_KEY = 'greenhills_pos_session';
 
 function doLogin(){
   var u=$$('login-user').value.trim(),p=$$('login-pass').value;
   var found=users.find(function(x){return x.username===u&&x.password===p;});
   if(!found){sMsg('login-msg','Incorrect username or password','red');return;}
+  _applyLogin(found);
+  // Save session to localStorage so refresh doesn't log out
+  try{localStorage.setItem(_SESSION_KEY,JSON.stringify({username:found.username,password:found.password}));}catch(e){}
+}
+function _applyLogin(found){
   currentUser=found;
   $$('login-screen').style.display='none';
   $$('main-app').style.display='block';
@@ -1299,7 +1311,25 @@ function doLogin(){
   var teeBtn=document.querySelector('.nav button:nth-child(2)');
   if(teeBtn)teeBtn.click();
 }
-function doLogout(){currentUser=null;$$('login-screen').style.display='block';$$('main-app').style.display='none';$$('login-user').value='';$$('login-pass').value='';$$('login-msg').innerHTML='';}
+function _tryRestoreSession(){
+  try{
+    var raw=localStorage.getItem(_SESSION_KEY);
+    if(!raw)return false;
+    var saved=JSON.parse(raw);
+    // Wait until users are loaded (initApp not yet called), so check after a tick
+    var found=users.find(function(x){return x.username===saved.username&&x.password===saved.password;});
+    if(found){_applyLogin(found);return true;}
+    // If not found yet (state not loaded), queue a retry after state loads
+    return false;
+  }catch(e){return false;}
+}
+function doLogout(){
+  currentUser=null;
+  try{localStorage.removeItem(_SESSION_KEY);}catch(e){}
+  $$('login-screen').style.display='block';
+  $$('main-app').style.display='none';
+  $$('login-user').value='';$$('login-pass').value='';$$('login-msg').innerHTML='';
+}
 function canDo(perm){if(!currentUser)return false;if(currentUser.role==='admin'||currentUser.role==='manager')return true;if(!currentUser.perms)return false;return currentUser.perms.indexOf(perm)>=0;}
 
 // USER LIST / PERMS
@@ -1960,7 +1990,50 @@ function completeSale(){
   if($$('tab-tee').classList.contains('on'))renderTee();
   updateDrawer();
   sMsg('sale-msg','Sale complete! '+C(tot),'green');
+  // Print receipt if checkbox is checked
+  if($$('print-receipt-chk')&&$$('print-receipt-chk').checked){
+    setTimeout(function(){printReceiptNow(items,method,tot,taxOn?tot-sub:0);},150);
+  }
 }
+function printReceiptNow(itemsStr, method, total, taxAmt){
+  var sub=total-taxAmt;
+  var lines=itemsStr.split(', ');
+  var now=new Date();
+  var cashier=currentUser?currentUser.name:'Staff';
+  var w=window.open('','_blank','width=340,height=600');
+  if(!w)return;
+  w.document.write('<!DOCTYPE html><html><head><style>'
+    +'*{margin:0;padding:0;box-sizing:border-box}'
+    +'body{font-family:"Courier New",monospace;font-size:13px;padding:16px;max-width:320px;color:#000}'
+    +'.center{text-align:center}.bold{font-weight:700}.div{border-top:1px dashed #000;margin:8px 0}'
+    +'.row{display:flex;justify-content:space-between;margin:3px 0}'
+    +'.total{font-size:15px;font-weight:700}'
+    +'@media print{button{display:none}@page{margin:0;size:80mm auto}}'
+    +'</style></head><body>'
+    +'<div class="center bold" style="font-size:16px;margin-bottom:4px">'+CFG.courseName+'</div>'
+    +'<div class="center" style="font-size:11px;color:#444">1455 Airport Rd, Worland, WY 82401</div>'
+    +'<div class="center" style="font-size:11px;color:#444">(307) 347-8972</div>'
+    +'<div class="div"></div>'
+    +'<div class="row"><span>Date:</span><span>'+now.toLocaleDateString()+'</span></div>'
+    +'<div class="row"><span>Time:</span><span>'+now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</span></div>'
+    +'<div class="row"><span>Cashier:</span><span>'+cashier+'</span></div>'
+    +'<div class="div"></div>'
+    +lines.map(function(l){return'<div style="margin:3px 0;font-size:12px">'+l+'</div>';}).join('')
+    +'<div class="div"></div>'
+    +'<div class="row"><span>Subtotal</span><span>'+C(sub)+'</span></div>'
+    +(taxAmt>0?'<div class="row"><span>Tax ('+CFG.tax+'%)</span><span>'+C(taxAmt)+'</span></div>':'')
+    +'<div class="div"></div>'
+    +'<div class="row total"><span>TOTAL</span><span>'+C(total)+'</span></div>'
+    +'<div class="row" style="margin-top:5px"><span>Payment</span><span>'+method+'</span></div>'
+    +'<div class="div"></div>'
+    +'<div class="center" style="margin-top:10px;font-size:11px">Thank you for playing!</div>'
+    +'<div class="center" style="font-size:11px">See you on the course ⛳</div>'
+    +'<br><button onclick="window.print()" style="width:100%;padding:8px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 Print</button>'
+    +'</body></html>');
+  w.document.close();
+  setTimeout(function(){w.print();},400);
+}
+
 function updateStats(){
   var todaySales=sales.filter(function(s){return s.total>0&&new Date(s.ts).toDateString()===new Date().toDateString();});
   var yesterdaySales=sales.filter(function(s){var d=new Date(s.ts);var y=new Date();y.setDate(y.getDate()-1);return s.total>0&&d.toDateString()===y.toDateString();});
@@ -4256,10 +4329,10 @@ function closeAndClearDay(){
 // ============================================================
 var _baseInitApp=initApp;
 initApp=function(){
-  // Try DB load first (async), fall back to localStorage
   loadStateAsync().then(function(){
+    // Try to restore saved session now that users are loaded from DB
+    if(!currentUser && _tryRestoreSession()) return; // session restored, _applyLogin calls initApp again
     _baseInitApp();
-    // Populate ALL settings fields from loaded CFG — prevents revert on save
     populateSettingsFields();
     if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
     if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
