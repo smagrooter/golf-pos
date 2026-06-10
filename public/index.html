@@ -3226,6 +3226,31 @@ function getBlocksForDate(date){
     return b.date===date; // once
   });
 }
+// Convert booking-page block format to POS teeBlock format
+function _normalizeRemoteBlock(rb){
+  // If it's already in POS format (has 'recur' field), return as-is
+  if(rb.recur !== undefined) return rb;
+  // Convert from booking-page format
+  // Booking page format: {id, date, startTime, endTime, reason, type}
+  // or: {id, date, allDay, reason}
+  var blk = {
+    id: rb.id || ('online_' + Date.now() + '_' + Math.random().toString(36).substr(2,4)),
+    recur: 'once',
+    date: rb.date || rb.blockDate || '',
+    reason: rb.reason || rb.notes || 'Online booking block',
+    onlineBlockId: rb.id || rb.onlineId || true
+  };
+  if(rb.allDay || rb.type === 'day' || (!rb.startTime && !rb.start)){
+    blk.type = 'day';
+    blk.start = '00:00';
+    blk.end = '23:59';
+  } else {
+    blk.type = 'range';
+    blk.start = rb.startTime || rb.start || '00:00';
+    blk.end = rb.endTime || rb.end || '23:59';
+  }
+  return blk;
+}
 function isTimeBlocked(date,time){
   var blocks=getBlocksForDate(date);
   return blocks.some(function(b){
@@ -3932,7 +3957,8 @@ async function manualTeeRefresh(){
     var r=await fetch('/api/data');
     var json=await r.json();
     if(json.ok&&json.data&&json.data.pos_main){
-      var remoteBookings=json.data.pos_main.bookings||{};
+      var remote=json.data.pos_main;
+      var remoteBookings=remote.bookings||{};
       var changed=false;
       // Add all remote bookings that aren't in local
       Object.entries(remoteBookings).forEach(function(e){
@@ -3943,6 +3969,22 @@ async function manualTeeRefresh(){
       Object.keys(bookings).forEach(function(k){
         if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}
       });
+      // Sync teeBlocks from booking page
+      if(remote.teeBlocks){
+        var rb=remote.teeBlocks;
+        var localIds=teeBlocks.map(function(b){return b.id;});
+        rb.forEach(function(raw){
+          var blk=_normalizeRemoteBlock(raw);
+          var li=teeBlocks.findIndex(function(b){return b.id===blk.id;});
+          if(li<0){teeBlocks.push(blk);changed=true;}
+          else if(JSON.stringify(teeBlocks[li])!==JSON.stringify(blk)){teeBlocks[li]=blk;changed=true;}
+        });
+        var rIds=rb.map(function(b){return b.id;});
+        var before=teeBlocks.length;
+        teeBlocks=teeBlocks.filter(function(b){return !b.onlineBlockId||rIds.indexOf(b.id)>=0;});
+        if(teeBlocks.length!==before)changed=true;
+      }
+      if(changed)renderTeeBlocksList();
       _lastBookingCount=Object.keys(bookings).length;
       if(changed) renderTee();
       var notice=document.getElementById('tee-refresh-notice');
@@ -3969,9 +4011,11 @@ function startTeeRefresh(){
       var r = await fetch('/api/data');
       var json = await r.json();
       if(!json.ok || !json.data || !json.data.pos_main) return;
-      var remoteBookings = json.data.pos_main.bookings || {};
+      var remote = json.data.pos_main;
+      var remoteBookings = remote.bookings || {};
       var changed = false;
-      // Add remote bookings not in local
+
+      // --- Sync bookings ---
       Object.entries(remoteBookings).forEach(function(e){
         var k=e[0], b=e[1];
         if(!bookings[k]){ bookings[k]=b; changed=true; }
@@ -3980,10 +4024,49 @@ function startTeeRefresh(){
       Object.keys(bookings).forEach(function(k){
         if(bookings[k].onlineBookingId && !remoteBookings[k]){ delete bookings[k]; changed=true; }
       });
+
+      // --- Sync teeBlocks from booking page ---
+      // The booking page saves teeBlocks into pos_main on the server.
+      // _normalizeBlock converts booking-page format to POS teeBlock format.
+      // We replace our local copy whenever the remote has a newer or different set.
+      if(remote.teeBlocks){
+        var remoteBlocks = remote.teeBlocks;
+        // Only update if the remote has blocks we don't have locally
+        // (keyed by id — add missing, keep local ones)
+        var localIds = teeBlocks.map(function(b){return b.id;});
+        var remoteAdded = false;
+        remoteBlocks.forEach(function(raw){
+          var rb = _normalizeRemoteBlock(raw);
+          if(localIds.indexOf(rb.id) < 0){
+            teeBlocks.push(rb);
+            remoteAdded = true;
+          } else {
+            // Update existing block if remote version is newer
+            var li = teeBlocks.findIndex(function(b){return b.id===rb.id;});
+            if(li >= 0 && JSON.stringify(teeBlocks[li]) !== JSON.stringify(rb)){
+              teeBlocks[li] = rb;
+              remoteAdded = true;
+            }
+          }
+        });
+        // Remove blocks that were deleted on booking page
+        var remoteIds = remoteBlocks.map(function(b){return b.id;});
+        var beforeLen = teeBlocks.length;
+        teeBlocks = teeBlocks.filter(function(b){
+          // Keep locally-created blocks (no onlineBlockId) always
+          if(!b.onlineBlockId) return true;
+          // Keep remote-originated blocks only if still in remote set
+          return remoteIds.indexOf(b.id) >= 0;
+        });
+        if(teeBlocks.length !== beforeLen) remoteAdded = true;
+        if(remoteAdded) changed = true;
+      }
+
       var newCount = Object.keys(bookings).length;
       if(changed){
         _lastBookingCount = newCount;
         renderTee();
+        renderTeeBlocksList();
         var el=document.getElementById('tee-refresh-notice');
         if(el){ el.style.display='flex'; setTimeout(function(){el.style.display='none';},4000); }
       } else {
