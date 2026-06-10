@@ -1283,12 +1283,36 @@ tr.unpaid-row{background:#FFF0F0}
   </div>
 </div></div>
 
+
+<!-- Tee Block Override Modal -->
+<div id="ov-tee-override" class="ov"><div class="modal">
+  <div class="modal-hdr" style="background:#FCEBEB;border-radius:10px 10px 0 0">
+    &#x1F512; Override Tee Block
+    <button class="btn btn-sm" onclick="closeOv('ov-tee-override')">&#x2715;</button>
+  </div>
+  <div style="background:#FAEEDA;border:1px solid #B8860B;border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:13px">
+    <strong style="color:#633806">&#x26A0; Administrative Override</strong><br>
+    <span style="color:#5C4500" id="override-block-reason-display"></span><br>
+    <span style="font-size:11px;color:#888;margin-top:3px;display:block">This override will be logged with your name and timestamp.</span>
+  </div>
+  <div class="fg">
+    <label>Reason for override <span style="color:#A32D2D">*</span></label>
+    <input id="override-reason" placeholder="e.g. Special event, VIP guest, Tournament exception..." style="border-color:#B8860B">
+  </div>
+  <div id="override-booking-area"></div>
+  <div id="override-msg"></div>
+  <div style="display:flex;gap:7px;margin-top:10px">
+    <button class="btn bg-red" onclick="confirmOverrideBook()" style="flex:1;padding:9px">&#x1F512; Confirm Override &amp; Book</button>
+    <button class="btn" onclick="closeOv('ov-tee-override')">Cancel</button>
+  </div>
+</div></div>
+
 <script>
 // ============================================================
 // AUTH & SECURITY
 // ============================================================
 var PERM_DEFS = {
-  tee:['Schedule tee times','Cancel tee times','Squeeze (add extra)','Wait list','Change status','Create event'],
+  tee:['Schedule tee times','Cancel tee times','Squeeze (add extra)','Wait list','Change status','Create event','Override tee block'],
   util:['Security settings','Workstation preferences','Change float','Change time/clock','End of day','Void transactions'],
   mem:['View members','Edit member info','Edit store credit','Reset store credit','Process membership payments','Add/remove members'],
   rep:['View reports','Print reports','View cash drawer','Modify prices','Edit drawer starting amount']
@@ -2608,39 +2632,45 @@ function renderTee(){
     var isBlocked=isTimeBlocked(date,time);
     var display12=fmt12(time);
     var blockInfo=isBlocked?getBlocksForDate(date).find(function(b){return b.type==='day'||(time>=b.start&&time<=b.end);}):null;
-    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'" data-blocked="'+(isBlocked?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br><span style="font-size:8px;color:#A32D2D;font-weight:600">🚫</span>':'')+'</div>';
+    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'" data-blocked="'+(isBlocked?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br><span style="font-size:8px;color:#A32D2D;font-weight:600">&#x1F6AB;</span>':'')+'</div>';
     cols.forEach(function(col){
       var slotBks=Object.entries(bookings).filter(function(e){var b=e[1];return b.date===date&&b.time===time&&b.col===col;});
       var used=slotBks.reduce(function(a,e){return a+parseInt(e[1].players);},0);total+=used;
       if(isBlocked){
-        // BLOCKED — show locked column, no click handler, no + slots
-        var blockLabel = blockInfo ? blockInfo.reason : 'Blocked';
-        h+='<div class="tcell-col" style="cursor:not-allowed;pointer-events:none"><div class="slot-grid">';
-        // Show any existing bookings that were made before the block was set
+        var blockLabel=blockInfo?blockInfo.reason:'Blocked';
+        var canOverride=currentUser&&(currentUser.role==='admin'||currentUser.role==='manager'||canDo('Override tee block'));
+        h+='<div class="tcell-col" style="'+(canOverride?'cursor:default':'cursor:not-allowed;pointer-events:none')+'"><div class="slot-grid">';
         var rendered=0;
         slotBks.forEach(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);names.forEach(function(name,ni){if(rendered<4){
           var isPaid=golferPaid(b,name);
           var extraStyle=isPaid?'background:#EAF3DE;border-color:#639922;color:#27500A;':'background:#FFF9C4;border-color:#B8860B;color:#5C4500;';
           if(b.holes==='9'&&!isPaid)extraStyle='background:#E6F1FB;border-color:#185FA5;color:#0C447C;';
           h+='<div class="slot" style="'+extraStyle+'" onclick="event.stopPropagation();showDetail(\''+key+'\')" title="'+name+(isPaid?' (PAID)':' (UNPAID)')+'">'+
-            (isPaid?'<span style="font-size:9px;font-weight:700">✓</span> ':'')+
+            (isPaid?'<span style="font-size:9px;font-weight:700">&#x2713;</span> ':'')+
             ' <span class="slot-name">'+name+'</span></div>';
           rendered++;}});});
-        // Fill remaining slots with locked placeholders
-        for(var eb=rendered;eb<4;eb++)h+='<div class="slot" style="background:#fff0f0;border-color:#e9b3b3;cursor:not-allowed;display:flex;align-items:center;justify-content:center;color:#A32D2D;font-size:14px" title="Blocked: '+blockLabel+'">🚫</div>';
+        for(var eb=rendered;eb<4;eb++){
+          if(eb===0&&canOverride){
+            h+='<div class="slot" style="background:#fff0f0;border-color:#e9b3b3;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;padding:3px" '+
+              'onclick="event.stopPropagation();openOverrideBookModal(\''+date+'\',\''+time+'\',\''+col+'\',\''+blockLabel+'\')" '+
+              'title="Admin override — click to book despite block">'+
+              '<span style="font-size:11px;color:#A32D2D;font-weight:700">&#x1F512;</span>'+
+              '<span style="font-size:8px;color:#A32D2D;font-weight:600">Override</span></div>';
+          }else{
+            h+='<div class="slot" style="background:#fff0f0;border-color:#e9b3b3;cursor:not-allowed;display:flex;align-items:center;justify-content:center;color:#c0c0c0;font-size:13px" title="Blocked: '+blockLabel+'">&#x1F6AB;</div>';
+          }
+        }
         h+='</div></div>';
-      } else {
-        // NORMAL — bookable column
+      }else{
         h+='<div class="tcell-col" onclick="openBookModal(\''+date+'\',\''+time+'\',\''+col+'\')"><div class="slot-grid">';
         var rendered=0;
         slotBks.forEach(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);names.forEach(function(name,ni){if(rendered<4){
           var isPaid=golferPaid(b,name);
           var cls=isPaid?'paid':b.holes==='18'?'s18':'s9';
-          // Override: yellow = booked unpaid, green = paid
           var extraStyle=isPaid?'background:#EAF3DE;border-color:#639922;color:#27500A;':'background:#FFF9C4;border-color:#B8860B;color:#5C4500;';
           if(b.holes==='9'&&!isPaid)extraStyle='background:#E6F1FB;border-color:#185FA5;color:#0C447C;';
           h+='<div class="slot" style="'+extraStyle+'" draggable="true" ondragstart="teeDragStart(event,\''+key+'\')" onclick="event.stopPropagation();showDetail(\''+key+'\')" ondblclick="event.stopPropagation();loadGolfer(\''+key+'\','+ni+');goToTab(\'pos\')" title="'+name+(isPaid?' (PAID)':' (UNPAID)')+'">'+
-            (isPaid?'<span style="font-size:9px;font-weight:700">✓</span> ':'')+
+            (isPaid?'<span style="font-size:9px;font-weight:700">&#x2713;</span> ':'')+
             ' <span class="slot-name">'+name+'</span></div>';
           rendered++;}});});
         for(var e2=rendered;e2<4;e2++)h+='<div class="slot empty" ondragover="teeSlotOver(event,this)" ondragleave="teeSlotLeave(this)" ondrop="teeDrop(event,\''+date+'\',\''+time+'\',\''+col+'\')" onclick="event.stopPropagation();openBookModal(\''+date+'\',\''+time+'\',\''+col+'\')" title="Click to book">+</div>';
@@ -2649,7 +2679,7 @@ function renderTee(){
     });
     h+='</div>';
   });
-  $$('tee-cal').innerHTML=h;
+  $$('tee-cal').innerHTML=h;;
   $$('tee-booked').textContent=total+' players booked';
   var dayBks=Object.entries(bookings).filter(function(e){return e[1].date===date;}).sort(function(a,b){return a[1].time.localeCompare(b[1].time);});
   var tl=$$('tee-list');
@@ -3247,6 +3277,13 @@ function getBlocksForDate(date){
     if(b.recur==='annual') return b.monthDay===monthDay;
     return b.date===date; // once
   });
+}
+function _normalizeRemoteBlock(rb){
+  if(rb.recur!==undefined)return rb;
+  var blk={id:rb.id||('online_'+Date.now()+'_'+Math.random().toString(36).substr(2,4)),recur:'once',date:rb.date||rb.blockDate||'',reason:rb.reason||rb.notes||'Online booking block',onlineBlockId:rb.id||rb.onlineId||true};
+  if(rb.allDay||rb.type==='day'||(!rb.startTime&&!rb.start)){blk.type='day';blk.start='00:00';blk.end='23:59';}
+  else{blk.type='range';blk.start=rb.startTime||rb.start||'00:00';blk.end=rb.endTime||rb.end||'23:59';}
+  return blk;
 }
 function isTimeBlocked(date,time){
   var blocks=getBlocksForDate(date);
@@ -3954,17 +3991,15 @@ async function manualTeeRefresh(){
     var r=await fetch('/api/data');
     var json=await r.json();
     if(json.ok&&json.data&&json.data.pos_main){
-      var remoteBookings=json.data.pos_main.bookings||{};
+      var remote2=json.data.pos_main;var remoteBookings=remote2.bookings||{};
       var changed=false;
-      // Add all remote bookings that aren't in local
-      Object.entries(remoteBookings).forEach(function(e){
-        var k=e[0],b=e[1];
-        if(!bookings[k]){bookings[k]=b;changed=true;}
-      });
-      // Remove local online bookings that were cancelled remotely
-      Object.keys(bookings).forEach(function(k){
-        if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}
-      });
+      Object.entries(remoteBookings).forEach(function(e){var k=e[0],b=e[1];if(!bookings[k]){bookings[k]=b;changed=true;}});
+      Object.keys(bookings).forEach(function(k){if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}});
+      if(remote2.teeBlocks){
+        var rb2=remote2.teeBlocks;rb2.forEach(function(raw){var blk=_normalizeRemoteBlock(raw);var li=teeBlocks.findIndex(function(b){return b.id===blk.id;});if(li<0){teeBlocks.push(blk);changed=true;}else if(JSON.stringify(teeBlocks[li])!==JSON.stringify(blk)){teeBlocks[li]=blk;changed=true;}});
+        var rIds2=rb2.map(function(b){return b.id;});var before2=teeBlocks.length;teeBlocks=teeBlocks.filter(function(b){return !b.onlineBlockId||rIds2.indexOf(b.id)>=0;});if(teeBlocks.length!==before2)changed=true;
+      }
+      if(changed)renderTeeBlocksList();
       _lastBookingCount=Object.keys(bookings).length;
       if(changed) renderTee();
       var notice=document.getElementById('tee-refresh-notice');
@@ -3985,33 +4020,25 @@ var _teeRefreshTimer = null;
 function startTeeRefresh(){
   if(_teeRefreshTimer) return;
   _teeRefreshTimer = setInterval(async function(){
-    var hasDB = await _checkDB();
-    if(!hasDB) return;
+    var hasDB=await _checkDB();if(!hasDB)return;
     try{
-      var r = await fetch('/api/data');
-      var json = await r.json();
-      if(!json.ok || !json.data || !json.data.pos_main) return;
-      var remoteBookings = json.data.pos_main.bookings || {};
-      var changed = false;
-      // Add remote bookings not in local
-      Object.entries(remoteBookings).forEach(function(e){
-        var k=e[0], b=e[1];
-        if(!bookings[k]){ bookings[k]=b; changed=true; }
-      });
-      // Remove cancelled online bookings
-      Object.keys(bookings).forEach(function(k){
-        if(bookings[k].onlineBookingId && !remoteBookings[k]){ delete bookings[k]; changed=true; }
-      });
-      var newCount = Object.keys(bookings).length;
-      if(changed){
-        _lastBookingCount = newCount;
-        renderTee();
-        var el=document.getElementById('tee-refresh-notice');
-        if(el){ el.style.display='flex'; setTimeout(function(){el.style.display='none';},4000); }
-      } else {
-        _lastBookingCount = newCount;
+      var r=await fetch('/api/data');var json=await r.json();
+      if(!json.ok||!json.data||!json.data.pos_main)return;
+      var remote=json.data.pos_main;
+      var remoteBookings=remote.bookings||{};var changed=false;
+      Object.entries(remoteBookings).forEach(function(e){var k=e[0],b=e[1];if(!bookings[k]){bookings[k]=b;changed=true;}});
+      Object.keys(bookings).forEach(function(k){if(bookings[k].onlineBookingId&&!remoteBookings[k]){delete bookings[k];changed=true;}});
+      if(remote.teeBlocks){
+        var rb=remote.teeBlocks;var localIds=teeBlocks.map(function(b){return b.id;});
+        rb.forEach(function(raw){var blk=_normalizeRemoteBlock(raw);var li=teeBlocks.findIndex(function(b){return b.id===blk.id;});if(li<0){teeBlocks.push(blk);changed=true;}else if(JSON.stringify(teeBlocks[li])!==JSON.stringify(blk)){teeBlocks[li]=blk;changed=true;}});
+        var rIds=rb.map(function(b){return b.id;});var before=teeBlocks.length;
+        teeBlocks=teeBlocks.filter(function(b){return !b.onlineBlockId||rIds.indexOf(b.id)>=0;});
+        if(teeBlocks.length!==before)changed=true;
       }
-    }catch(e){ /* silent fail */ }
+      var newCount=Object.keys(bookings).length;
+      if(changed){_lastBookingCount=newCount;renderTee();renderTeeBlocksList();var el=document.getElementById('tee-refresh-notice');if(el){el.style.display='flex';setTimeout(function(){el.style.display='none';},4000);}}
+      else{_lastBookingCount=newCount;}
+    }catch(e){}
   }, 30000);
 }
 setTimeout(startTeeRefresh, 5000);
@@ -5527,5 +5554,118 @@ saveTournament = function(){
     // No saved session — login screen stays visible
   });
 })();
+
+
+
+// ================================================================
+// TEE BLOCK OVERRIDE — v28
+// ================================================================
+var _overridePendingSlot = null;
+var _overrideBlockReason = '';
+
+function openOverrideBookModal(date, time, col, blockReason){
+  if(!currentUser){ alert('You must be logged in to override a block.'); return; }
+  if(currentUser.role !== 'admin' && currentUser.role !== 'manager' && !canDo('Override tee block')){
+    alert('You do not have permission to override tee blocks.\nContact an admin or manager.');
+    return;
+  }
+  _overridePendingSlot = {date:date, time:time, col:col};
+  _overrideBlockReason = blockReason || 'Blocked';
+
+  var el = $$('override-block-reason-display');
+  if(el) el.textContent = 'Block reason: "' + _overrideBlockReason + '" on ' + fmt12(time) + ' — ' + col + ' (' + date + ')';
+
+  var used = slotsUsed(date, time, col);
+  var el2 = $$('override-booking-area');
+  if(el2){
+    el2.innerHTML = '<div class="fg fg2" style="margin-top:10px">'
+      + '<div><label>Lead golfer name</label><input id="ovr-name" placeholder="Name or member"></div>'
+      + '<div><label>Players (1–' + (4-used) + ' slots left)</label><input id="ovr-players" type="number" value="1" min="1" max="' + (4-used) + '"></div>'
+      + '</div>'
+      + '<div class="fg fg2">'
+      + '<div><label>Holes</label><select id="ovr-holes"><option value="18">18 holes</option><option value="9">9 holes</option></select></div>'
+      + '<div><label>Cart</label><select id="ovr-cart"><option value="none">No cart</option><option value="1">1 cart</option><option value="2">2 carts</option></select></div>'
+      + '</div>'
+      + '<div class="fg">'
+      + '<label>Member (optional)</label>'
+      + '<select id="ovr-member"><option value="">— No member —</option>'
+      + members.map(function(m){ return '<option value="'+m.id+'">'+m.first+' '+m.last+'</option>'; }).join('')
+      + '</select></div>';
+  }
+
+  $$('override-reason').value = '';
+  $$('override-msg').innerHTML = '';
+  openOv('ov-tee-override');
+}
+
+function confirmOverrideBook(){
+  if(!_overridePendingSlot){ closeOv('ov-tee-override'); return; }
+  var reason = ($$('override-reason')||{value:''}).value.trim();
+  if(!reason){
+    sMsg('override-msg', 'Please enter a reason for the override', 'red');
+    return;
+  }
+  var name = ($$('ovr-name')||{value:''}).value.trim();
+  if(!name){
+    sMsg('override-msg', 'Please enter the golfer name', 'red');
+    return;
+  }
+  var players = parseInt(($$('ovr-players')||{value:'1'}).value) || 1;
+  var holes   = ($$('ovr-holes')||{value:'18'}).value;
+  var cart    = ($$('ovr-cart')||{value:'none'}).value;
+  var memberId = parseInt(($$('ovr-member')||{value:''}).value) || null;
+
+  var slot = _overridePendingSlot;
+  var key  = bookingKey(slot.date, slot.time, slot.col);
+  // If key already exists add a suffix
+  if(bookings[key]){
+    var sx = 1;
+    while(bookings[key + '_' + sx]) sx++;
+    key = key + '_' + sx;
+  }
+
+  bookings[key] = {
+    name:     name,
+    players:  players,
+    holes:    holes,
+    cart:     cart,
+    date:     slot.date,
+    time:     slot.time,
+    col:      slot.col,
+    memberId: memberId,
+    extras:   [],
+    paid:     false,
+    paidNames:[],
+    overrideBlock: true,
+    overrideReason: reason,
+    overrideBy: currentUser ? currentUser.name : 'Unknown',
+    overrideAt: new Date().toLocaleString(),
+    blockReason: _overrideBlockReason
+  };
+
+  // Log the override to sales/audit trail
+  var auditEntry = {
+    time: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+    items: 'BLOCK OVERRIDE: ' + name + ' @ ' + fmt12(slot.time) + ' ' + slot.col + ' (' + slot.date + ') — ' + reason,
+    method: 'override',
+    total: 0,
+    cats: {'Override':0},
+    ts: Date.now(),
+    cashier: currentUser ? currentUser.name : 'Unknown',
+    sessionId: _currentSessionId || ''
+  };
+  sales.push(auditEntry);
+
+  closeOv('ov-tee-override');
+  _overridePendingSlot = null;
+  renderTee();
+  renderSalesLog();
+  saveState();
+  sMsg('sale-msg',
+    '\uD83D\uDD13 Override booked: ' + name + ' at ' + fmt12(slot.time) + ' — ' + slot.col + '. Reason: ' + reason,
+    'amber'
+  );
+}
+
 
 </script>
