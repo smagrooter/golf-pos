@@ -390,7 +390,7 @@ function applyDiscount(timeStr){
 function renderTeeCards(slots,ds){
   var sec=document.getElementById('tee-section');
   var heading='<div class="date-heading">'+fmtDateDisplay(ds)+'</div>';
-  var dayBlock=_teeBlocksForDate.find(function(b){return b.type==='day';});
+  var fullDayBlock=_teeBlocksForDate.find(function(b){return b.type==='day'&&(b.holes==='both'||!b.holes);});var h18DayBlock=_teeBlocksForDate.find(function(b){return b.type==='day'&&b.holes==='18';});var h9DayBlock=_teeBlocksForDate.find(function(b){return b.type==='day'&&b.holes==='9';});var dayBlock=fullDayBlock;
   if(dayBlock){
     sec.innerHTML=heading+'<div style="background:#FCEBEB;border:1.5px solid #e9b3b3;border-radius:14px;padding:32px 24px;text-align:center">'
       +'<div style="font-size:36px;margin-bottom:10px">\uD83D\uDEAB<\/div>'
@@ -400,14 +400,18 @@ function renderTeeCards(slots,ds){
       +'<\/div>';
     return;
   }
-  var legend='';
+  // Partial day block banners (9-only or 18-only day blocks)
+  var partialDayBanner='';
+  if(h18DayBlock&&!h9DayBlock)partialDayBanner='<div style="background:#FCEBEB;border:1px solid #e9b3b3;border-radius:10px;padding:10px 14px;font-size:13px;color:#791F1F;margin-bottom:14px">⚠️ <strong>18-hole rounds not available today.</strong> 9-hole tee times are still bookable. <span style="font-size:11px">('+h18DayBlock.reason+')</span></div>';
+  if(h9DayBlock&&!h18DayBlock)partialDayBanner='<div style="background:#FFF9C4;border:1px solid #B8860B;border-radius:10px;padding:10px 14px;font-size:13px;color:#5C4500;margin-bottom:14px">⚠️ <strong>9-hole rounds not available today.</strong> 18-hole tee times are still bookable. <span style="font-size:11px">('+h9DayBlock.reason+')</span></div>';
+  var legend=partialDayBanner||'';;
   if(_activeDiscounts.length){
     var names=[...new Set(_activeDiscounts.map(function(d){return d.name;}))];
     legend='<div class="disc-legend">\uD83C\uDFF7 <strong>Discount active:<\/strong> '+names.join(', ')+' \u2014 highlighted tee times qualify<\/div>';
   }
   var rangeBlocks=_teeBlocksForDate.filter(function(b){return b.type==='range';});
   if(rangeBlocks.length){
-    var reasons=[...new Set(rangeBlocks.map(function(b){return b.reason;}))];
+    var reasons=[...new Set(rangeBlocks.map(function(b){var bh=b.holes||'both';var hl=bh==='18'?' (18-hole only)':bh==='9'?' (9-hole only)':'';return b.reason+hl;}))];
     legend+='<div style="background:#FCEBEB;border:1px solid #e9b3b3;border-radius:10px;padding:9px 14px;font-size:12px;color:#791F1F;margin-bottom:14px;display:flex;align-items:center;gap:8px">\uD83D\uDEAB <strong>Some times blocked:<\/strong> '+reasons.join(' \u00B7 ')+'<\/div>';
   }
   if(!slots.length){sec.innerHTML=heading+legend+'<div class="tee-empty">\u26F3 No available tee times for this date.<br><span style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Please select another date or call us at (307) 347-8972.<\/span><\/div>';return;}
@@ -415,11 +419,14 @@ function renderTeeCards(slots,ds){
   var html=heading+legend+'<div class="tee-grid">';
   slots.forEach(function(s){
     if(s.blocked){
+      var blkHoles=s.blockHoles||'both';
+      var unavailLbl=blkHoles==='18'?'18-hole unavailable':blkHoles==='9'?'9-hole unavailable':'Unavailable';
+      var availHint=blkHoles==='18'?'9-hole rounds may still be available':blkHoles==='9'?'18-hole rounds may still be available':'';
       html+='<div class="tee-card" style="cursor:not-allowed;opacity:.75;border-color:#e9b3b3">'
         +'<div class="tee-card-hdr" style="background:#b83232"><span class="t-icon">\uD83D\uDEAB<\/span><span class="t-time">'+s.display+'<\/span><\/div>'
         +'<div class="tee-card-body">'
         +'<div class="t-course">Green Hills Golf Club<\/div>'
-        +'<div style="font-size:12px;color:#791F1F;font-weight:600;margin-top:6px">Unavailable<\/div>'
+        +'<div style="font-size:12px;color:#791F1F;font-weight:600;margin-top:6px">'+unavailLbl+'<\/div>'+(availHint?'<div style="font-size:10px;color:#999;margin-top:2px">'+availHint+'<\/div>':'')
         +'<div style="font-size:11px;color:#A32D2D;margin-top:3px">'+s.blockReason+'<\/div>'
         +'<\/div><\/div>';
       return;

@@ -956,6 +956,14 @@ tr.unpaid-row{background:#FFF0F0}
               </div>
             </div>
           </div>
+          <div class="fg">
+            <label>Holes blocked</label>
+            <select id="blk-holes">
+              <option value="both">Both 9-hole and 18-hole</option>
+              <option value="18">18-hole only</option>
+              <option value="9">9-hole only</option>
+            </select>
+          </div>
           <div style="display:flex;gap:7px">
             <button class="btn bg-red btn-sm" id="blk-save-btn" onclick="saveTeeBlock()">+ Add Block</button>
             <button class="btn btn-sm" id="blk-cancel-btn" onclick="cancelEditBlock()" style="display:none">Cancel</button>
@@ -2400,8 +2408,14 @@ function buildTeeBookMemberSelect(){
   var sel=$$('tm-member-sel');
   sel.innerHTML='<option value="">— Not a member / type name —</option>'+members.filter(function(m){return m.isMember!==false;}).map(function(m){return'<option value="'+m.id+'">'+m.first+' '+m.last+'</option>';}).join('');
 }
-function openBookModal(date,time,col){
-  if(isTimeBlocked(date,time)){var blocks=getBlocksForDate(date);var reason=blocks.length?blocks[0].reason:'Blocked';alert('This time is blocked:\n'+reason);return;}
+function openBookModal(date,time,col,holesOverride){
+  var hs=getHoleBlockState(date,time);
+  if(!hs.none&&!holesOverride){
+    if(hs.both){alert('This time is fully blocked (9-hole & 18-hole):\n'+hs.reason);return;}
+    var partType=hs.h18?'18-hole':'9-hole';
+    var openType=hs.h18?'9-hole':'18-hole';
+    if(!confirm(partType+' tee times are blocked ('+hs.reason+').\n'+openType+' bookings are still available.\nProceed with a '+openType+' booking?'))return;
+  }
   var used=slotsUsed(date,time,col);if(used>=4){alert('This time slot is full.');return;}
   pendingSlot={date:date,time:time,col:col};
   $$('tee-slot-lbl').textContent=fmt12(time)+' — '+col;
@@ -2629,17 +2643,21 @@ function renderTee(){
   var total=0;
   TIMES.forEach(function(time){
     var isHour=time.slice(-2)==='00';
-    var isBlocked=isTimeBlocked(date,time);
+    var holeState=getHoleBlockState(date,time);
+    var isBlocked=!holeState.none;
     var display12=fmt12(time);
     var blockInfo=isBlocked?getBlocksForDate(date).find(function(b){return b.type==='day'||(time>=b.start&&time<=b.end);}):null;
-    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'" data-blocked="'+(isBlocked?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br><span style="font-size:8px;color:#A32D2D;font-weight:600">&#x1F6AB;</span>':'')+'</div>';
+    var blockTimeLabel=holeState.both?'&#x1F6AB;':holeState.h18?'<span style="font-size:7px;font-weight:700;color:#A32D2D">18h&#x1F6AB;</span>':holeState.h9?'<span style="font-size:7px;font-weight:700;color:#A32D2D">9h&#x1F6AB;</span>':'';
+    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'" data-blocked="'+(isBlocked?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br>'+blockTimeLabel:'')+'</div>';
     cols.forEach(function(col){
       var slotBks=Object.entries(bookings).filter(function(e){var b=e[1];return b.date===date&&b.time===time&&b.col===col;});
       var used=slotBks.reduce(function(a,e){return a+parseInt(e[1].players);},0);total+=used;
       if(isBlocked){
-        var blockLabel=blockInfo?blockInfo.reason:'Blocked';
+        var holesBlockedLabel=holeState.both?'Both 9 & 18 blocked':holeState.h18?'18-hole blocked':holeState.h9?'9-hole blocked':'Blocked';
+        var blockLabel=(blockInfo?blockInfo.reason:'Blocked')+' — '+holesBlockedLabel;
         var canOverride=currentUser&&(currentUser.role==='admin'||currentUser.role==='manager'||canDo('Override tee block'));
-        h+='<div class="tcell-col" style="'+(canOverride?'cursor:default':'cursor:not-allowed;pointer-events:none')+'"><div class="slot-grid">';
+        var isColFullyBlocked=holeState.both;
+        h+='<div class="tcell-col" style="'+(canOverride?'cursor:default':isColFullyBlocked?'cursor:not-allowed;pointer-events:none':'cursor:default')+'"><div class="slot-grid">';
         var rendered=0;
         slotBks.forEach(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);names.forEach(function(name,ni){if(rendered<4){
           var isPaid=golferPaid(b,name);
@@ -3230,6 +3248,7 @@ function editTeeBlock(id){
   if(b.end)$$('blk-end').value=b.end;
   toggleBlockRecur(b.recur||'once');
   toggleBlockType(b.type||'day');
+  if($$('blk-holes'))$$('blk-holes').value=b.holes||'both';
   $$('blk-form-title').textContent='Edit Block';
   $$('blk-save-btn').textContent='✓ Save Changes';
   $$('blk-cancel-btn').style.display='';
@@ -3252,6 +3271,8 @@ function renderTeeBlocksList(){
   el.innerHTML=sorted.map(function(b){
     var isPast=b.recur==='once'&&b.date&&b.date<new Date().toISOString().split('T')[0];
     var timeLabel=b.type==='day'?'All day':(b.start+' – '+b.end);
+    var holesLabel=b.holes==='18'?'18-hole only':b.holes==='9'?'9-hole only':'Both 9 & 18';
+    var holesBadge='<span style="font-size:10px;background:'+(b.holes==='18'?'#E6F1FB;color:#0C447C':b.holes==='9'?'#EAF3DE;color:#27500A':'#FCEBEB;color:#791F1F')+';border-radius:4px;padding:1px 6px;font-weight:600;margin-left:4px">'+holesLabel+'</span>';
     var whenLabel='';
     if(b.recur==='weekly') whenLabel='Every '+(b.dows||[]).map(function(d){return days[d];}).join(', ');
     else if(b.recur==='annual') whenLabel='Annual: '+b.monthDay+' each year';
@@ -3261,7 +3282,7 @@ function renderTeeBlocksList(){
       +'<span style="font-size:11px;font-weight:700;color:#A32D2D;min-width:20px">🚫</span>'
       +'<div style="flex:1;min-width:0">'
       +'<div style="font-size:13px;font-weight:600">'+whenLabel+recurBadge+' <span style="font-size:11px;font-weight:400;color:#666">'+timeLabel+'</span>'+(isPast?'<span style="font-size:10px;color:#aaa;margin-left:5px">past</span>':'')+'</div>'
-      +'<div style="font-size:11px;color:#555">'+b.reason+'</div>'
+      +holesBadge+'<div style="font-size:11px;color:#555">'+b.reason+'</div>'
       +'</div>'
       +'<button class="btn bg-amber btn-sm" onclick="editTeeBlock('+b.id+')">✎</button>'
       +'<button class="btn bg-red btn-sm" onclick="delTeeBlock('+b.id+')">✕</button>'
@@ -3285,12 +3306,28 @@ function _normalizeRemoteBlock(rb){
   else{blk.type='range';blk.start=rb.startTime||rb.start||'00:00';blk.end=rb.endTime||rb.end||'23:59';}
   return blk;
 }
-function isTimeBlocked(date,time){
+function isTimeBlocked(date,time,holes){
   var blocks=getBlocksForDate(date);
   return blocks.some(function(b){
+    var bh=b.holes||'both';
+    if(holes&&bh!=='both'&&bh!==holes)return false;
     if(b.type==='day')return true;
     return time>=b.start&&time<=b.end;
   });
+}
+function getHoleBlockState(date,time){
+  var blocks=getBlocksForDate(date);
+  var h9=false,h18=false,reason='Blocked';
+  blocks.forEach(function(b){
+    var inRange=b.type==='day'||(time>=b.start&&time<=b.end);
+    if(!inRange)return;
+    var bh=b.holes||'both';
+    if(bh==='both'){h9=true;h18=true;}
+    else if(bh==='9')h9=true;
+    else if(bh==='18')h18=true;
+    if(b.reason)reason=b.reason;
+  });
+  return{h9:h9,h18:h18,both:h9&&h18,none:!h9&&!h18,reason:reason};
 }
 function applyGlobalExpiry(){
   var exp=$$('s-mem-exp').value;if(!exp){alert('Set an expiration date first.');return;}
