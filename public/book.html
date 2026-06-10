@@ -400,7 +400,6 @@ function renderTeeCards(slots,ds){
       +'<\/div>';
     return;
   }
-  // Partial day block banners (9-only or 18-only day blocks)
   var partialDayBanner='';
   if(h18DayBlock&&!h9DayBlock)partialDayBanner='<div style="background:#FCEBEB;border:1px solid #e9b3b3;border-radius:10px;padding:10px 14px;font-size:13px;color:#791F1F;margin-bottom:14px">⚠️ <strong>18-hole rounds not available today.</strong> 9-hole tee times are still bookable. <span style="font-size:11px">('+h18DayBlock.reason+')</span></div>';
   if(h9DayBlock&&!h18DayBlock)partialDayBanner='<div style="background:#FFF9C4;border:1px solid #B8860B;border-radius:10px;padding:10px 14px;font-size:13px;color:#5C4500;margin-bottom:14px">⚠️ <strong>9-hole rounds not available today.</strong> 18-hole tee times are still bookable. <span style="font-size:11px">('+h9DayBlock.reason+')</span></div>';
@@ -420,13 +419,24 @@ function renderTeeCards(slots,ds){
   slots.forEach(function(s){
     if(s.blocked){
       var blkHoles=s.blockHoles||'both';
-      var unavailLbl=blkHoles==='18'?'18-hole unavailable':blkHoles==='9'?'9-hole unavailable':'Unavailable';
-      var availHint=blkHoles==='18'?'9-hole rounds may still be available':blkHoles==='9'?'18-hole rounds may still be available':'';
+      // Partial block: one hole type blocked, other is still bookable
+      if(blkHoles==='9'||blkHoles==='18'){
+        var openType=blkHoles==='9'?'18':'9';
+        var disc2=applyDiscount(s.time);
+        var limited2=s.available<=2;
+        var dp9b=p9,dp18b=p18;
+        if(disc2){dp9b=disc2.type==='pct'?parseFloat((p9*(1-disc2.val/100)).toFixed(2)):Math.max(0,p9-disc2.val);dp18b=disc2.type==='pct'?parseFloat((p18*(1-disc2.val/100)).toFixed(2)):Math.max(0,p18-disc2.val);}
+        var partPrice=openType==='9'?'$'+dp9b:'$'+dp18b;
+        var dots2='';for(var di=0;di<4;di++)dots2+='<div class="t-dot'+(di>=s.available?' empty':'')+'"><\/div>';
+        html+='<button class="tee-card'+(limited2?' limited-card':'')+'" onclick="openBooking(\''+s.time+'\',\''+s.display+'\','+s.available+',\''+blkHoles+'\')" style="border-color:#B8860B">'          +'<div class="tee-card-hdr" style="background:#8a6200"><span class="t-icon">&#x26A0;</span><span class="t-time">'+s.display+'</span></div>'          +'<div class="tee-card-body">'          +'<div class="t-course">Green Hills Golf Club</div>'          +'<div style="font-size:11px;color:#791F1F;font-weight:600;margin-top:4px">'+blkHoles+'-hole blocked — '+openType+'-hole only</div>'          +'<div style="font-size:11px;color:#A32D2D;margin-top:1px">'+s.blockReason+'</div>'          +'<div class="t-price" style="margin-top:5px">'+partPrice+'</div>'          +'<div class="t-avail"><div class="t-dots">'+dots2+'</div><span>'+(limited2?'Limited':'Available')+'</span></div>'          +'</div></button>';
+        return;
+      }
+      // Full block — show locked card
       html+='<div class="tee-card" style="cursor:not-allowed;opacity:.75;border-color:#e9b3b3">'
         +'<div class="tee-card-hdr" style="background:#b83232"><span class="t-icon">\uD83D\uDEAB<\/span><span class="t-time">'+s.display+'<\/span><\/div>'
         +'<div class="tee-card-body">'
         +'<div class="t-course">Green Hills Golf Club<\/div>'
-        +'<div style="font-size:12px;color:#791F1F;font-weight:600;margin-top:6px">'+unavailLbl+'<\/div>'+(availHint?'<div style="font-size:10px;color:#999;margin-top:2px">'+availHint+'<\/div>':'')
+        +'<div style="font-size:12px;color:#791F1F;font-weight:600;margin-top:6px">Unavailable<\/div>'
         +'<div style="font-size:11px;color:#A32D2D;margin-top:3px">'+s.blockReason+'<\/div>'
         +'<\/div><\/div>';
       return;
@@ -453,15 +463,35 @@ function renderTeeCards(slots,ds){
   html+='<\/div>';
   sec.innerHTML=html;
 }
-function openBooking(time,display,avail){
+function openBooking(time,display,avail,blockedHoles){
   state.time=time;state.timeDisplay=display;state.maxAvail=avail;
   document.getElementById('bm-time-display').textContent=display+' · '+fmtDateDisplay(state.date);
   document.querySelectorAll('#player-btns .sel-btn').forEach(function(b,i){b.disabled=(i+1)>avail;b.style.opacity=(i+1)>avail?'0.4':'1';b.classList.toggle('on',i===0);});
-  state.players=1;selectPlayers(1);selectHoles('18');
+  state.players=1;selectPlayers(1);
+  var h18btn=document.getElementById('h18');
+  var h9btn=document.getElementById('h9');
+  if(blockedHoles==='18'){
+    if(h18btn){h18btn.disabled=true;h18btn.style.opacity='0.4';h18btn.title='18-hole not available at this time';}
+    if(h9btn){h9btn.disabled=false;h9btn.style.opacity='1';h9btn.title='';}
+    selectHoles('9');
+  } else if(blockedHoles==='9'){
+    if(h9btn){h9btn.disabled=true;h9btn.style.opacity='0.4';h9btn.title='9-hole not available at this time';}
+    if(h18btn){h18btn.disabled=false;h18btn.style.opacity='1';h18btn.title='';}
+    selectHoles('18');
+  } else {
+    if(h18btn){h18btn.disabled=false;h18btn.style.opacity='1';h18btn.title='';}
+    if(h9btn){h9btn.disabled=false;h9btn.style.opacity='1';h9btn.title='';}
+    selectHoles('18');
+  }
   bmStep(1);
   document.getElementById('booking-overlay').classList.add('open');
 }
-function closeBookingModal(){document.getElementById('booking-overlay').classList.remove('open');}
+function closeBookingModal(){
+  document.getElementById('booking-overlay').classList.remove('open');
+  var h18btn=document.getElementById('h18');var h9btn=document.getElementById('h9');
+  if(h18btn){h18btn.disabled=false;h18btn.style.opacity='1';h18btn.title='';}
+  if(h9btn){h9btn.disabled=false;h9btn.style.opacity='1';h9btn.title='';}
+}
 
 function bmStep(n){
   if(n===3){
