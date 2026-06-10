@@ -3198,7 +3198,7 @@ function saveTeeBlock(){
   var type=$$('blk-type').value;
   var editId=$$('blk-edit-id').value;
   if(!reason){sMsg('blk-msg','Please enter a reason','red');return;}
-  var blk={id:editId?parseInt(editId):_nextBlkId++,reason:reason,type:type,recur:recur};
+  var blk={id:editId?parseInt(editId):_nextBlkId++,reason:reason,type:type,recur:recur,holes:($$('blk-holes')||{value:'both'}).value||'both'};
   if(recur==='weekly'){
     var dows=[...document.querySelectorAll('.blk-dow:checked')].map(function(c){return parseInt(c.value);});
     if(!dows.length){sMsg('blk-msg','Select at least one day of week','red');return;}
