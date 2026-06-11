@@ -387,6 +387,21 @@ function applyDiscount(timeStr){
   return best;
 }
 
+function getSlotHoleBlock(time){
+  // Returns which hole types are blocked at this time using _teeBlocksForDate
+  // This reads the holes field directly from block objects (set by POS, not server)
+  var h9=false,h18=false,reason='';
+  _teeBlocksForDate.forEach(function(b){
+    var inRange=b.type==='day'||(time>=b.start&&time<=b.end);
+    if(!inRange)return;
+    var bh=b.holes||'both';
+    if(bh==='both'){h9=true;h18=true;}
+    else if(bh==='9')h9=true;
+    else if(bh==='18')h18=true;
+    if(b.reason)reason=b.reason;
+  });
+  return{h9:h9,h18:h18,both:h9&&h18,none:!h9&&!h18,reason:reason};
+}
 function renderTeeCards(slots,ds){
   var sec=document.getElementById('tee-section');
   var heading='<div class="date-heading">'+fmtDateDisplay(ds)+'</div>';
@@ -417,8 +432,10 @@ function renderTeeCards(slots,ds){
   var p9=32,p18=55;
   var html=heading+legend+'<div class="tee-grid">';
   slots.forEach(function(s){
-    if(s.blocked){
-      var blkHoles=s.blockHoles||'both';
+    // Use _teeBlocksForDate directly — server doesn't set blockHoles field
+    var holeBlock=getSlotHoleBlock(s.time);
+    if(s.blocked||!holeBlock.none){
+      var blkHoles=holeBlock.both?'both':holeBlock.h18?'18':holeBlock.h9?'9':'both';
       // Partial block: one hole type blocked, other is still bookable
       if(blkHoles==='9'||blkHoles==='18'){
         var openType=blkHoles==='9'?'18':'9';
@@ -428,7 +445,7 @@ function renderTeeCards(slots,ds){
         if(disc2){dp9b=disc2.type==='pct'?parseFloat((p9*(1-disc2.val/100)).toFixed(2)):Math.max(0,p9-disc2.val);dp18b=disc2.type==='pct'?parseFloat((p18*(1-disc2.val/100)).toFixed(2)):Math.max(0,p18-disc2.val);}
         var partPrice=openType==='9'?'$'+dp9b:'$'+dp18b;
         var dots2='';for(var di=0;di<4;di++)dots2+='<div class="t-dot'+(di>=s.available?' empty':'')+'"><\/div>';
-        html+='<button class="tee-card'+(limited2?' limited-card':'')+'" onclick="openBooking(\''+s.time+'\',\''+s.display+'\','+s.available+',\''+blkHoles+'\')" style="border-color:#B8860B">'          +'<div class="tee-card-hdr" style="background:#8a6200"><span class="t-icon">&#x26A0;</span><span class="t-time">'+s.display+'</span></div>'          +'<div class="tee-card-body">'          +'<div class="t-course">Green Hills Golf Club</div>'          +'<div style="font-size:11px;color:#791F1F;font-weight:600;margin-top:4px">'+blkHoles+'-hole blocked — '+openType+'-hole only</div>'          +'<div style="font-size:11px;color:#A32D2D;margin-top:1px">'+s.blockReason+'</div>'          +'<div class="t-price" style="margin-top:5px">'+partPrice+'</div>'          +'<div class="t-avail"><div class="t-dots">'+dots2+'</div><span>'+(limited2?'Limited':'Available')+'</span></div>'          +'</div></button>';
+        html+='<button class="tee-card'+(limited2?' limited-card':'')+'" onclick="openBooking(\''+s.time+'\',\''+s.display+'\','+s.available+',\''+blkHoles+'\')" style="border-color:#B8860B">'          +'<div class="tee-card-hdr" style="background:#8a6200"><span class="t-icon">&#x26A0;</span><span class="t-time">'+s.display+'</span></div>'          +'<div class="tee-card-body">'          +'<div class="t-course">Green Hills Golf Club</div>'          +'<div style="font-size:11px;color:#791F1F;font-weight:600;margin-top:4px">'+blkHoles+'-hole blocked — '+openType+'-hole only</div>'          +'<div style="font-size:11px;color:#A32D2D;margin-top:1px">'+(holeBlock.reason||s.blockReason||'Blocked')+'</div>'          +'<div class="t-price" style="margin-top:5px">'+partPrice+'</div>'          +'<div class="t-avail"><div class="t-dots">'+dots2+'</div><span>'+(limited2?'Limited':'Available')+'</span></div>'          +'</div></button>';
         return;
       }
       // Full block — show locked card
