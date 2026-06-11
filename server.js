@@ -271,7 +271,18 @@ app.get('/api/teetimes/:date', async (req, res) => {
       const block = teeBlocksForDate.find(b =>
         b.type === 'day' || (s.time >= b.start && s.time <= b.end)
       );
-      if (block) return { ...s, blocked: true, blockReason: block.reason, blockHoles: block.holes || 'both', available: 0 };
+      if (block) {
+        const bh = block.holes || 'both';
+        // Full block (both hole types) — zero availability
+        // Partial block (one hole type) — keep real availability so booking page shows open slots
+        return {
+          ...s,
+          blocked: true,
+          blockReason: block.reason,
+          blockHoles: bh,
+          available: bh === 'both' ? 0 : s.available
+        };
+      }
       return s;
     });
 

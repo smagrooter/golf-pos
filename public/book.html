@@ -445,7 +445,17 @@ function renderTeeCards(slots,ds){
         if(disc2){dp9b=disc2.type==='pct'?parseFloat((p9*(1-disc2.val/100)).toFixed(2)):Math.max(0,p9-disc2.val);dp18b=disc2.type==='pct'?parseFloat((p18*(1-disc2.val/100)).toFixed(2)):Math.max(0,p18-disc2.val);}
         var partPrice=openType==='9'?'$'+dp9b:'$'+dp18b;
         var dots2='';for(var di=0;di<4;di++)dots2+='<div class="t-dot'+(di>=s.available?' empty':'')+'"><\/div>';
-        html+='<button class="tee-card'+(limited2?' limited-card':'')+'" onclick="openBooking(\''+s.time+'\',\''+s.display+'\','+s.available+',\''+blkHoles+'\')" style="border-color:#B8860B">'          +'<div class="tee-card-hdr" style="background:#8a6200"><span class="t-icon">&#x26A0;</span><span class="t-time">'+s.display+'</span></div>'          +'<div class="tee-card-body">'          +'<div class="t-course">Green Hills Golf Club</div>'          +'<div style="font-size:11px;color:#791F1F;font-weight:600;margin-top:4px">'+blkHoles+'-hole blocked — '+openType+'-hole only</div>'          +'<div style="font-size:11px;color:#A32D2D;margin-top:1px">'+(holeBlock.reason||s.blockReason||'Blocked')+'</div>'          +'<div class="t-price" style="margin-top:5px">'+partPrice+'</div>'          +'<div class="t-avail"><div class="t-dots">'+dots2+'</div><span>'+(limited2?'Limited':'Available')+'</span></div>'          +'</div></button>';
+        var availCount2=s.available||0;
+        var slotsLabel2=availCount2===0?'Full':availCount2===1?'1 slot left':availCount2<=2?availCount2+' slots — Limited':availCount2+' slots open';
+        html+='<button class="tee-card'+(availCount2===0?' limited-card':'')+'" onclick="'+(availCount2===0?'':'openBooking(\''+s.time+'\',\''+s.display+'\','+availCount2+',\''+blkHoles+'\')')+'" style="border-color:#B8860B;'+(availCount2===0?'cursor:not-allowed;opacity:0.7':'')+'">'
+          +'<div class="tee-card-hdr" style="background:#8a6200"><span class="t-icon">&#x26A0;</span><span class="t-time">'+s.display+'</span></div>'
+          +'<div class="tee-card-body">'
+          +'<div class="t-course">Green Hills Golf Club</div>'
+          +'<div style="display:inline-block;background:#fff3cd;border:1px solid #B8860B;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;color:#5C4500;margin-top:5px">&#x26A0; '+openType+'-hole only</div>'
+          +'<div style="font-size:11px;color:#A32D2D;margin-top:3px">'+(holeBlock.reason||s.blockReason||'Blocked')+'</div>'
+          +'<div class="t-price" style="margin-top:5px">'+partPrice+'</div>'
+          +'<div class="t-avail" style="margin-top:5px"><div class="t-dots">'+dots2+'</div><span style="font-weight:600;color:'+(availCount2===0?'#A32D2D':availCount2<=2?'#633806':'#27500A')+'">'+slotsLabel2+'</span></div>'
+          +'</div></button>';
         return;
       }
       // Full block — show locked card
