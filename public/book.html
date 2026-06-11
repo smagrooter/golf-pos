@@ -63,7 +63,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:none;align-items:flex-end;justify-content:center}
 .ov.open{display:flex}
 @media(min-width:600px){.ov{align-items:center;padding:16px}}
-.modal{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:92vh;overflow-y:auto;padding:22px 22px 32px;position:relative}
+.modal{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:500px;max-height:92vh;overflow-y:hidden;padding:0;position:relative;display:flex;flex-direction:column}
+.modal-scroll{flex:1;overflow-y:auto;padding:22px 22px 10px;-webkit-overflow-scrolling:touch}
+.modal-footer{padding:10px 22px 22px;background:#fff;border-top:1px solid #f0f0ec;flex-shrink:0}
 @media(min-width:600px){.modal{border-radius:20px}}
 .modal-drag{width:40px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 16px}
 .modal-close{position:absolute;top:14px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:#999}
@@ -208,7 +210,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <!-- Booking modal -->
 <div class="ov" id="booking-overlay">
   <div class="modal">
-    <div class="modal-drag"></div>
+    <div class="modal-scroll">
+  <div class="modal-drag" style="margin-bottom:10px"></div>
     <button class="modal-close" onclick="closeBookingModal()">✕</button>
     <!-- Selected time banner -->
     <div style="background:var(--green-dark);color:#fff;border-radius:10px;padding:11px 15px;display:flex;align-items:center;gap:9px;margin-bottom:16px">
@@ -239,7 +242,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <button class="sel-btn" id="h9" onclick="selectHoles('9')">9 Holes</button>
         </div>
       </div>
-      <button class="btn-p" onclick="bmStep(2)">Continue →</button>
     </div>
     <!-- Step 2: Details -->
     <div id="bm-step2" style="display:none">
@@ -253,10 +255,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="fg"><label>Email</label><input id="d-email" type="email" placeholder="you@email.com"></div>
       <div id="extra-golfers"></div>
       <div class="fg"><label>Notes (optional)</label><input id="d-notes" placeholder="e.g. first time, need club rentals..."></div>
-      <div class="btn-row">
-        <button class="btn-s" onclick="bmStep(1)">← Back</button>
-        <button class="btn-p" onclick="bmStep(3)" style="flex:1">Review →</button>
-      </div>
     </div>
     <!-- Step 3: Confirm -->
     <div id="bm-step3" style="display:none">
@@ -274,12 +272,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="sum-row" id="sum-extras-row" style="display:none"><span class="lbl">Other golfers</span><span class="val" id="sum-extras">—</span></div>
       </div>
       <div class="msg mi">💳 Payment collected at the course — no payment required to book</div>
-      <div class="btn-row">
-        <button class="btn-s" onclick="bmStep(2)">← Back</button>
+    </div>
+  </div><!-- /modal-scroll -->
+  <!-- STICKY FOOTER -->
+  <div class="modal-footer">
+    <div id="bm-footer-1">
+      <button class="btn-p" onclick="bmStep(2)">Continue →</button>
+    </div>
+    <div id="bm-footer-2" style="display:none">
+      <div class="btn-row" style="gap:8px">
+        <button class="btn-s" onclick="bmStep(1)" style="flex:0 0 76px">← Back</button>
+        <button class="btn-p" onclick="bmStep(3)" style="flex:1">Review →</button>
+      </div>
+    </div>
+    <div id="bm-footer-3" style="display:none">
+      <div class="btn-row" style="gap:8px">
+        <button class="btn-s" onclick="bmStep(2)" style="flex:0 0 76px">← Back</button>
         <button class="btn-p" id="submit-btn" onclick="submitBooking()" style="flex:1">✓ Confirm Tee Time</button>
       </div>
     </div>
   </div>
+</div>
 </div>
 
 <footer style="background:var(--green-dark);color:rgba(255,255,255,.65);text-align:center;padding:20px;font-size:12px">
@@ -520,6 +533,12 @@ function closeBookingModal(){
   if(h9btn){h9btn.disabled=false;h9btn.style.opacity='1';h9btn.title='';}
 }
 
+function _footerStep(n){
+  [1,2,3].forEach(function(i){
+    var f=document.getElementById('bm-footer-'+i);
+    if(f)f.style.display=i===n?'':'none';
+  });
+}
 function bmStep(n){
   if(n===3){
     var first=val('d-first'),last=val('d-last'),email=val('d-email');
@@ -538,6 +557,7 @@ function bmStep(n){
   }
   [1,2,3].forEach(function(i){
     document.getElementById('bm-step'+i).style.display=i===n?'block':'none';
+    _footerStep(n);
     var ms=document.getElementById('ms'+i);
     ms.className='m-step'+(i<n?' done':i===n?' active':'');
   });

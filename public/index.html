@@ -665,17 +665,34 @@ tr.unpaid-row{background:#FFF0F0}
     <div class="fg fg4" style="margin-bottom:9px">
       <div><label>Report type</label>
         <select id="rpt-type" onchange="runReport()">
-          <option value="summary">Daily summary</option>
-          <option value="rounds">Rounds / tee times</option>
-          <option value="category">Sales by category</option>
-          <option value="method">Sales by payment method</option>
-          <option value="comparison">Comparison</option>
-          <option value="membership">Membership payments</option>
-          <option value="tax">Sales tax report</option>
-          <option value="shift">Cashier shift report</option>
-          <option value="cash_reconciliation">Cash Reconciliation (Admin)</option>
-          <option value="inventory">Inventory Report</option>
-          <option value="timeclock">Time Clock Report</option>
+          <optgroup label="Daily Operations">
+            <option value="summary">Daily summary</option>
+            <option value="detail">Transaction detail — all line items</option>
+            <option value="method">Sales by payment method</option>
+            <option value="shift">Cashier shift report</option>
+            <option value="cash_reconciliation">Cash drawer reconciliation</option>
+          </optgroup>
+          <optgroup label="Sales &amp; Revenue">
+            <option value="category">Sales by category</option>
+            <option value="comparison">Period comparison</option>
+            <option value="rounds">Rounds &amp; tee time activity</option>
+            <option value="refunds">Refunds &amp; voids</option>
+            <option value="gift_cert">Gift certificate activity</option>
+          </optgroup>
+          <optgroup label="Members">
+            <option value="membership">Membership payments</option>
+            <option value="mem_status">Member status &amp; expiry</option>
+            <option value="mem_credit">Store credit balances</option>
+          </optgroup>
+          <optgroup label="Compliance &amp; Audit">
+            <option value="tax">Wyoming sales tax report</option>
+            <option value="audit">Full audit trail — all transactions</option>
+            <option value="audit_export">Export all data (CSV)</option>
+          </optgroup>
+          <optgroup label="Operations">
+            <option value="inventory">Inventory report</option>
+            <option value="timeclock">Time clock report</option>
+          </optgroup>
         </select>
       </div>
       <div><label>Period</label>
@@ -1595,28 +1612,47 @@ function _memberCardHTML(m){
   var isExpired=m.exp&&m.exp<now;
   var isAlert=isExpired||!m.paid;
   var hasUnpaidAddons=m.paid&&m.unpaidAddons&&m.unpaidAddons.length>0;
-  var initials=(m.first||'?')[0].toUpperCase()+(m.last||'?')[0].toUpperCase();
-  var pills='';
-  if(m.paid&&!hasUnpaidAddons) pills+='<span class="mem-pill b-green">Paid</span>';
-  else if(hasUnpaidAddons) pills+='<span class="mem-pill b-amber">Add-on unpaid</span>';
-  else pills+='<span class="mem-pill b-red">Unpaid dues</span>';
-  if(isExpired) pills+='<span class="mem-pill b-red">Expired</span>';
-  else if(m.exp) pills+='<span class="mem-pill b-green">Active</span>';
-  if(m.addons&&m.addons.some(function(a){return a&&a.toLowerCase().indexOf('cart')>=0;})) pills+='<span class="mem-pill b-blue">Cart incl.</span>';
-  if(m.addons&&m.addons.some(function(a){return a&&a.toLowerCase().indexOf('range')>=0;})) pills+='<span class="mem-pill b-teal">Range incl.</span>';
-  var addonsStr=m.addons&&m.addons.length?m.addons.join(', '):'';
-  return '<div class="mem-card-v11'+(isAlert?' mem-alert':'')+'">'
-    +'<div class="mem-card-v11-hdr">'
-    +'<div class="mem-avatar-v11">'+initials+'</div>'
-    +'<div><div style="font-size:13px;font-weight:700;color:#1a1a1a">'+m.first+' '+m.last+(isAlert?' ⚠':'')+'</div>'
-    +'<div style="font-size:11px;color:#666">'+m.type+(addonsStr?' + '+addonsStr:'')+'</div></div>'
+  var initials=((m.first||'?')[0]+(m.last||'?')[0]).toUpperCase();
+  // Status badge
+  var statusBg,statusTxt,statusLabel;
+  if(m.paid&&!isExpired&&!hasUnpaidAddons){statusBg='#EAF3DE';statusTxt='#27500A';statusLabel='Active & Paid';}
+  else if(isExpired){statusBg='#FCEBEB';statusTxt='#791F1F';statusLabel='Expired';}
+  else if(hasUnpaidAddons){statusBg='#FAEEDA';statusTxt='#633806';statusLabel='Add-on unpaid';}
+  else{statusBg='#FCEBEB';statusTxt='#791F1F';statusLabel='Dues unpaid';}
+  // Cart addon
+  var hasCart=m.addons&&m.addons.some(function(a){return a&&a.toLowerCase().indexOf('cart')>=0;});
+  // Memberships list — base type + addons
+  var membershipList=[m.type||'Member'];
+  if(m.addons&&m.addons.length)m.addons.forEach(function(a){if(a)membershipList.push(a);});
+  var borderColor=isAlert?'#F09595':'#C0DD97';
+  return '<div style="border:1px solid '+borderColor+';border-radius:10px;padding:9px 11px;margin-bottom:6px;background:'+(isAlert?'#FFFAFA':'#FAFFF6')+'">'
+    +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">'
+    +'<div style="width:34px;height:34px;border-radius:50%;background:'+(isAlert?'#F09595':'#C0DD97')+';flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:'+(isAlert?'#791F1F':'#27500A')+'">'
+    +initials+'</div>'
+    +'<div style="flex:1;min-width:0">'
+    +'<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+m.first+' '+m.last+'</div>'
+    +'<div style="font-size:11px;color:#666;white-space:nowrap">'+m.phone+(m.email?' &bull; '+m.email:'')+'</div>'
     +'</div>'
-    +'<div class="mem-pill-row">'+pills+'</div>'
-    +'<div class="mem-stat-row">'
-    +'<div class="mem-stat-cell"><div class="mem-stat-lbl">Store credit</div><div class="mem-stat-val">'+C(m.credit)+'</div></div>'
-    +'<div class="mem-stat-cell"><div class="mem-stat-lbl">Expires</div><div class="mem-stat-val" style="font-size:11px">'+(m.exp||'N/A')+'</div></div>'
-    +'</div></div>';
+    +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+statusBg+';color:'+statusTxt+';white-space:nowrap">'+statusLabel+'</span>'
+    +'</div>'
+    // Credit + membership type row
+    +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px">'
+    +'<div style="background:#E6F1FB;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;color:#0C447C">&#x1F4B3; Credit: '+C(m.credit)+'</div>'
+    +(m.exp?'<div style="font-size:11px;color:#666">Exp: <strong>'+m.exp+'</strong></div>':'')
+    +'</div>'
+    // Memberships row
+    +'<div style="display:flex;gap:5px;flex-wrap:wrap">'
+    +membershipList.map(function(a){
+      var isCart=a.toLowerCase().indexOf('cart')>=0;
+      var isRange=a.toLowerCase().indexOf('range')>=0;
+      var bg=isCart?'#EAF3DE':isRange?'#E1F5EE':'#E6F1FB';
+      var tc=isCart?'#27500A':isRange?'#085041':'#0C447C';
+      return'<span style="font-size:10px;padding:2px 7px;border-radius:8px;background:'+bg+';color:'+tc+';font-weight:600">'+a+'</span>';
+    }).join('')
+    +'</div>'
+    +'</div>';
 }
+
 function renderPosMemberBox(id){
   var m=members.find(function(x){return x.id===id;});
   if(!m){$$('pos-member-box').innerHTML='';return;}
@@ -5731,6 +5767,297 @@ function confirmOverrideBook(){
     '\uD83D\uDD13 Override booked: ' + name + ' at ' + fmt12(slot.time) + ' — ' + slot.col + '. Reason: ' + reason,
     'amber'
   );
+}
+
+
+
+
+function exportCSV(headers, rows, filename){
+  var csv=[headers.join(',')].concat(rows.map(function(r){
+    return r.map(function(c){var s=String(c===null||c===undefined?'':c).replace(/"/g,'""');return s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0?'"'+s+'"':s;}).join(',');
+  })).join('\n');
+  var blob=new Blob([csv],{type:'text/csv'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+}
+
+
+// ================================================================
+// REPORTS — new report types injected into runReport
+// ================================================================
+var _baseRunReport32 = runReport;
+runReport = function(){
+  var type = $$('rpt-type') ? $$('rpt-type').value : '';
+  var pa   = $$('rpt-a')    ? $$('rpt-a').value    : 'today';
+  var out  = $$('rpt-output');
+
+  // Hand off types that aren't new
+  var existingTypes = ['summary','rounds','category','method','comparison','membership',
+    'tax','shift','cash_reconciliation','inventory','timeclock'];
+  if(existingTypes.indexOf(type) >= 0){ _baseRunReport32(); return; }
+  if(!out) return;
+
+  var sA = getSalesFor(pa, 'rpt-a-date');
+
+  // ── Helper: stat card ─────────────────────────────────────
+  function sc(label, val, color){
+    return '<div class="stat" style="'+(color?'background:'+color:'')+'">'
+      +'<div class="lbl">'+label+'</div><div class="val">'+val+'</div></div>';
+  }
+  function statRow(cards){ return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px;margin-bottom:14px">'+cards+'</div>'; }
+
+  // ── Helper: styled table ──────────────────────────────────
+  function tbl(headers, rows, emptyMsg){
+    if(!rows.length) return '<p style="color:#888;font-size:13px;margin-top:10px">'+(emptyMsg||'No data for this period.')+'</p>';
+    return '<div style="overflow-x:auto"><table style="font-size:12px;width:100%;min-width:400px"><thead><tr>'
+      +headers.map(function(h){return'<th style="background:#f5f5f0;padding:6px 8px;text-align:left;font-size:11px;font-weight:700;color:#555;white-space:nowrap">'+h+'</th>';}).join('')
+      +'</tr></thead><tbody>'
+      +rows.map(function(r,i){return'<tr style="background:'+(i%2?'#fafaf8':'#fff')+'">'
+        +r.map(function(c){return'<td style="padding:5px 8px;border-bottom:1px solid #f0f0e8;vertical-align:top">'+c+'</td>';}).join('')
+        +'</tr>';}).join('')
+      +'</tbody></table></div>';
+  }
+
+  // ── Helper: export CSV ───────────────────────────────────
+  function exportCSV(headers, rows, filename){
+    var csv = [headers.join(',')].concat(rows.map(function(r){
+      return r.map(function(c){var s=String(c).replace(/"/g,'""');return s.indexOf(',')>=0||s.indexOf('"')>=0?'"'+s+'"':s;}).join(',');
+    })).join('\n');
+    var blob = new Blob([csv], {type:'text/csv'});
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = filename; a.click();
+  }
+
+  // ── DETAIL report — every line item in period ────────────
+  if(type === 'detail'){
+    var rows = [];
+    sA.forEach(function(s){
+      rows.push([
+        s.time||'', s.cashier||'Unknown',
+        s.items||'', s.method||'',
+        s.total>0?C(s.total):'<span style="color:#A32D2D">'+C(s.total)+'</span>',
+        s.cats?Object.entries(s.cats).map(function(e){return e[0]+':'+C(e[1]);}).join(' | '):'',
+        s.ts?new Date(s.ts).toLocaleString():''
+      ]);
+    });
+    var gross=sA.filter(function(s){return s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+    var refunds=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);
+    out.innerHTML = statRow(
+      sc('Transactions',sA.filter(function(s){return s.total>0;}).length)
+      +sc('Gross revenue',C(gross))
+      +sc('Refunds',C(Math.abs(refunds)),'#FCEBEB')
+      +sc('Net revenue',C(gross+refunds),'#EAF3DE')
+    )
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    +'<div style="font-size:13px;font-weight:700;color:#444">All transactions</div>'
+    +'<button class="btn btn-sm bg-blue" onclick="'+
+      'var h=[\'Time\',\'Cashier\',\'Items\',\'Method\',\'Amount\',\'Categories\',\'Timestamp\'];'+
+      'var r=sales.map(function(s){return[s.time||\'\',s.cashier||\'\',s.items||\'\',s.method||\'\',s.total,s.cats?JSON.stringify(s.cats):\'\',s.ts?new Date(s.ts).toLocaleString():\'\'];});'+
+      'exportCSV(h,r,\'transactions.csv\')">&#x1F4E5; Export CSV</button>'
+    +'</div>'
+    + tbl(['Time','Cashier','Items','Method','Amount','Categories','Full timestamp'], rows, 'No transactions.');
+  }
+
+  // ── REFUNDS report ────────────────────────────────────────
+  else if(type === 'refunds'){
+    var refs = sA.filter(function(s){return s.total<0 || (s.items&&s.items.toLowerCase().indexOf('refund')>=0);});
+    var totalRef = refs.reduce(function(a,s){return a+Math.abs(s.total);},0);
+    var rows = refs.map(function(s){
+      return [s.time||'', s.cashier||'Unknown', s.items||'', s.method||'', C(Math.abs(s.total)),
+        s.ts?new Date(s.ts).toLocaleString():''];
+    });
+    out.innerHTML = statRow(
+      sc('Refund transactions', refs.length)
+      +sc('Total refunded', C(totalRef), '#FCEBEB')
+    )
+    + tbl(['Time','Cashier','Item / reason','Method','Amount','Timestamp'], rows, 'No refunds in this period.');
+  }
+
+  // ── GIFT CERT report ──────────────────────────────────────
+  else if(type === 'gift_cert'){
+    var active = giftCerts.filter(function(g){return g.status==='active';});
+    var redeemed = giftCerts.filter(function(g){return g.status==='redeemed';});
+    var totalIssued = giftCerts.reduce(function(a,g){return a+g.amount;},0);
+    var totalOutstanding = active.reduce(function(a,g){return a+g.balance;},0);
+    var rows = giftCerts.map(function(g){
+      return [g.code||'', g.recipient||'', g.buyer||'', C(g.amount), C(g.balance),
+        '<span style="background:'+(g.status==='active'?'#EAF3DE':'#F1EFE8')+';color:'+(g.status==='active'?'#27500A':'#888')+';padding:1px 7px;border-radius:8px;font-size:11px">'+g.status+'</span>',
+        g.issued||'', g.note||''];
+    });
+    out.innerHTML = statRow(
+      sc('Total issued', giftCerts.length)
+      +sc('Active certs', active.length, '#EAF3DE')
+      +sc('Redeemed', redeemed.length)
+      +sc('Outstanding balance', C(totalOutstanding), '#E6F1FB')
+      +sc('Total issued value', C(totalIssued))
+    )
+    + tbl(['Code','Recipient','Buyer','Face value','Balance','Status','Issued','Note'], rows, 'No gift certificates issued.');
+  }
+
+  // ── MEMBER STATUS report ──────────────────────────────────
+  else if(type === 'mem_status'){
+    var now2 = todayStr();
+    var expired = members.filter(function(m){return m.exp&&m.exp<now2;});
+    var expiring30 = members.filter(function(m){
+      if(!m.exp)return false;
+      var d=new Date(m.exp),today=new Date();
+      var diff=(d-today)/(1000*60*60*24);
+      return diff>=0&&diff<=30;
+    });
+    var unpaid = members.filter(function(m){return !m.paid;});
+    var rows = members.map(function(m){
+      var isExp=m.exp&&m.exp<now2;
+      var status=m.paid?(isExp?'Expired':'Active'):'Unpaid';
+      var statusColor=m.paid&&!isExp?'#27500A':isExp?'#791F1F':'#633806';
+      var statusBg=m.paid&&!isExp?'#EAF3DE':isExp?'#FCEBEB':'#FAEEDA';
+      return [
+        m.first+' '+m.last, m.type||'', m.phone||'', m.email||'',
+        C(m.dues), m.exp||'—',
+        '<span style="background:'+statusBg+';color:'+statusColor+';padding:1px 7px;border-radius:8px;font-size:11px">'+status+'</span>',
+        m.addons&&m.addons.length?m.addons.join(', '):''
+      ];
+    });
+    out.innerHTML = statRow(
+      sc('Total members', members.length)
+      +sc('Active & paid', members.filter(function(m){return m.paid&&(!m.exp||m.exp>=now2);}).length, '#EAF3DE')
+      +sc('Unpaid', unpaid.length, '#FCEBEB')
+      +sc('Expired', expired.length, '#FCEBEB')
+      +sc('Expiring in 30 days', expiring30.length, '#FAEEDA')
+    )
+    + tbl(['Name','Type','Phone','Email','Dues','Expires','Status','Addons'], rows);
+  }
+
+  // ── STORE CREDIT report ───────────────────────────────────
+  else if(type === 'mem_credit'){
+    var withCredit = members.filter(function(m){return m.credit>0;});
+    var totalCredit = members.reduce(function(a,m){return a+m.credit;},0);
+    var rows = members.map(function(m){
+      return [m.first+' '+m.last, m.type||'', C(m.credit),
+        m.creditH&&m.creditH.length?m.creditH.slice(-1)[0].date+' — '+m.creditH.slice(-1)[0].type:'No history',
+        m.creditH?m.creditH.length+' entries':'0'];
+    });
+    out.innerHTML = statRow(
+      sc('Members with credit', withCredit.length)
+      +sc('Total outstanding', C(totalCredit), '#E6F1FB')
+    )
+    + tbl(['Member','Type','Balance','Last activity','Transactions'], rows);
+  }
+
+  // ── FULL AUDIT TRAIL ─────────────────────────────────────
+  else if(type === 'audit'){
+    var allSales = sales.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+    var rows = allSales.map(function(s){
+      return [
+        s.ts?new Date(s.ts).toLocaleString():'', s.cashier||'Unknown',
+        s.items||'', s.method||'',
+        '<span style="color:'+(s.total<0?'#A32D2D':'inherit')+';font-weight:700">'+C(s.total)+'</span>',
+        s.cats?Object.entries(s.cats).map(function(e){return e[0]+': '+C(e[1]);}).join('; '):'',
+        s.sessionId||''
+      ];
+    });
+    var gross2=allSales.filter(function(s){return s.total>0;}).reduce(function(a,s){return a+s.total;},0);
+    var ref2=allSales.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);
+    out.innerHTML = '<div style="background:#FAEEDA;border:1px solid #B8860B;border-radius:8px;padding:9px 13px;font-size:12px;color:#633806;margin-bottom:12px">'
+      +'<strong>Full audit trail</strong> — all transactions ever recorded in this system. '
+      +'Suitable for IRS/state tax audit purposes. Export CSV for your accountant.</div>'
+      + statRow(
+          sc('Total records', allSales.length)
+          +sc('Gross all time', C(gross2))
+          +sc('Refunds all time', C(Math.abs(ref2)), '#FCEBEB')
+          +sc('Net all time', C(gross2+ref2), '#EAF3DE')
+        )
+      +'<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+      +'<button class="btn btn-sm bg-blue" onclick="exportCSV('+
+        '[\'Timestamp\',\'Cashier\',\'Items\',\'Method\',\'Amount\',\'Categories\',\'Session\'],'+
+        'sales.map(function(s){return[s.ts?new Date(s.ts).toLocaleString():\'\',s.cashier||\'\',s.items||\'\',s.method||\'\',s.total,s.cats?JSON.stringify(s.cats):\'\',s.sessionId||\'\']}),'+
+        '\'full_audit_trail.csv\')">&#x1F4E5; Export Full Audit CSV</button>'
+      +'</div>'
+      + tbl(['Timestamp','Cashier','Items','Method','Amount','Categories','Session'], rows, 'No transactions recorded.');
+  }
+
+  // ── EXPORT ALL DATA ───────────────────────────────────────
+  else if(type === 'audit_export'){
+    // Build comprehensive multi-sheet export as separate CSV downloads
+    out.innerHTML = '<div class="eod-section" style="background:#f8f8f4;border-radius:10px;padding:14px">'
+      +'<h4 style="margin-bottom:10px">Export all data for audit / backup</h4>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+      +'<button class="btn bg-blue" onclick="exportCSV([\'Timestamp\',\'Cashier\',\'Items\',\'Method\',\'Amount\',\'Tax-exempt\',\'Session\'],sales.map(function(s){var taxable=s.cats?Object.entries(s.cats).filter(function(e){return [\'Course Fees\',\'Fees\',\'Membership\',\'Gift Cert\',\'Tip\'].indexOf(e[0])<0;}).reduce(function(a,e){return a+e[1];},0):0;return[s.ts?new Date(s.ts).toLocaleString():\'\',s.cashier||\'\',s.items||\'\',s.method||\'\',s.total,taxable,s.sessionId||\'\']}),\'transactions.csv\')">&#x1F4E5; Transactions</button>'
+      +'<button class="btn bg-blue" onclick="exportCSV([\'Name\',\'Type\',\'Phone\',\'Email\',\'Dues\',\'Paid\',\'Expires\',\'Credit\',\'Addons\'],members.map(function(m){return[m.first+\' \'+m.last,m.type||\'\',m.phone||\'\',m.email||\'\',m.dues,m.paid?\'Yes\':\'No\',m.exp||\'\',m.credit,m.addons?m.addons.join(\'|\'):\'\']}),\'members.csv\')">&#x1F4E5; Members</button>'
+      +'<button class="btn bg-blue" onclick="exportCSV([\'Code\',\'Recipient\',\'Buyer\',\'Amount\',\'Balance\',\'Status\',\'Issued\'],giftCerts.map(function(g){return[g.code||\'No code\',g.recipient||\'\',g.buyer||\'\',g.amount,g.balance,g.status||\'\',g.issued||\'\']}),\'gift_certificates.csv\')">&#x1F4E5; Gift Certs</button>'
+      +'<button class="btn bg-blue" onclick="exportCSV([\'Name\',\'Price\',\'Stock\',\'SKU\',\'Category\'],products.map(function(p){return[p.name||\'\',p.price,p.stock,p.sku||\'\',p.cat||\'\']}),\'inventory.csv\')">&#x1F4E5; Inventory</button>'
+      +'<button class="btn bg-blue" onclick="exportCSV([\'Name\',\'Date\',\'Holes\',\'Cart\',\'Players\',\'Email\',\'Method\',\'Online\'],Object.values(bookings).map(function(b){return[b.name||\'\',b.date||\'\',b.holes||\'\',b.cart||\'\',b.players||\'\',b.email||\'\',b.method||\'\',b.onlineBookingId?\'Yes\':\'No\']}),\'bookings.csv\')">&#x1F4E5; Bookings</button>'
+      +'</div>'
+      +'<p style="font-size:11px;color:#888;margin-top:10px">All files export as CSV — open in Excel or Google Sheets. Keep copies for Wyoming DOR and IRS purposes.</p>'
+      +'</div>';
+  }
+
+  if(!out.innerHTML || out.innerHTML === ''){
+    _baseRunReport32();
+  }
+};
+
+// ================================================================
+// PARTIAL REFUND — add dollar-amount partial refund to the
+// existing refund modal. Patch processRefund to support partial.
+// ================================================================
+var _baseProcessRefund = processRefund;
+processRefund = function(){
+  var item  = ($$('ref-item')||{value:''}).value.trim();
+  var amt   = parseFloat(($$('ref-amt')||{value:'0'}).value);
+  var method = ($$('ref-method')||{value:'cash'}).value;
+  if(!item || !amt || amt <= 0){ sMsg('ref-msg','Enter item and amount','red'); return; }
+  if(_refMax !== null && amt > _refMax){ sMsg('ref-msg','Amount cannot exceed '+C(_refMax),'red'); return; }
+  // Partial refund note
+  var isPartial = _refMax !== null && amt < _refMax;
+  var refundLabel = item + (isPartial ? ' (partial $'+amt.toFixed(2)+' of '+C(_refMax)+')' : '');
+  if(method === 'credit'){
+    var name = ($$('ref-mem')||{value:''}).value.trim();
+    var mem = members.find(function(m){ return (m.first+' '+m.last).toLowerCase() === name.toLowerCase(); });
+    if(!mem){ sMsg('ref-msg','Member not found','red'); return; }
+    mem.credit += amt;
+    mem.creditH.push({date:new Date().toLocaleDateString(),type:'refund',amt:amt,reason:refundLabel});
+  }
+  sales.push({
+    time: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+    items: 'REFUND: '+refundLabel,
+    method: method+' refund',
+    total: -amt,
+    cats: {'Refund': -amt},
+    ts: Date.now(),
+    cashier: currentUser ? currentUser.name : 'Unknown',
+    sessionId: _currentSessionId || ''
+  });
+  updateStats(); renderSalesLog(); saveState();
+  closeOv('ov-refund');
+  sMsg('sale-msg', (isPartial?'Partial refund ':'Refund ')+C(amt)+' — '+item, 'amber');
+};
+
+// Upgrade refund modal UI to show partial refund helper
+var _baseOpenRefundModal = openRefundModal;
+openRefundModal = function(){
+  _baseOpenRefundModal();
+  // Add partial refund quick-buttons after the amount field is populated
+  setTimeout(function(){
+    var amtEl = $$('ref-amt');
+    if(!amtEl) return;
+    // Add partial pct buttons above the amount field if not already there
+    if(document.getElementById('partial-ref-btns')) return;
+    var container = amtEl.parentNode;
+    var pctRow = document.createElement('div');
+    pctRow.id = 'partial-ref-btns';
+    pctRow.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap';
+    pctRow.innerHTML = '<span style="font-size:11px;color:#666;align-self:center">Partial:</span>'
+      +'<button class="btn btn-sm" onclick="setPartialRefund(0.50)">50%</button>'
+      +'<button class="btn btn-sm" onclick="setPartialRefund(0.75)">75%</button>'
+      +'<button class="btn btn-sm" onclick="setPartialRefund(1.00)">Full</button>';
+    container.parentNode.insertBefore(pctRow, container);
+  }, 200);
+};
+
+function setPartialRefund(pct){
+  if(_refMax === null) return;
+  var amt = parseFloat((_refMax * pct).toFixed(2));
+  if($$('ref-amt')) $$('ref-amt').value = amt;
+  clampRefundAmt();
 }
 
 
