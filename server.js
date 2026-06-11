@@ -271,7 +271,7 @@ app.get('/api/teetimes/:date', async (req, res) => {
       const block = teeBlocksForDate.find(b =>
         b.type === 'day' || (s.time >= b.start && s.time <= b.end)
       );
-      if (block) return { ...s, blocked: true, blockReason: block.reason, available: 0 };
+      if (block) return { ...s, blocked: true, blockReason: block.reason, blockHoles: block.holes || 'both', available: 0 };
       return s;
     });
 
@@ -328,17 +328,25 @@ app.post('/api/bookings', async (req, res) => {
     const bookingId = bR.rows[0].id;
     const posKey = `${date}|${time}|#1 Tee`;
 
-    // Inject into POS tee sheet
-    if (posData) {
-      posData.bookings = posData.bookings || {};
-      posData.bookings[posKey] = {
+    // Inject into POS tee sheet — use a targeted merge to avoid overwriting
+    // the entire pos_main blob (which would wipe any unsaved POS changes).
+    {
+      // Re-read the very latest pos_main from DB right before writing
+      const latestR = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
+      let latestData = latestR.rows.length ? JSON.parse(latestR.rows[0].value) : {};
+      latestData.bookings = latestData.bookings || {};
+      latestData.bookings[posKey] = {
         name: fullName, extras: (extraNames||[]).filter(Boolean),
         players: parseInt(players), holes: holes||'18', cart: 'none',
-        notes: (notes && notes.trim()) ? notes.trim() + ` (Online #GH-${bookingId})` : `Online booking #GH-${bookingId}`, paidNames: [], paid: false,
+        notes: (notes && notes.trim()) ? notes.trim() + ` (Online #GH-${bookingId})` : `Online booking #GH-${bookingId}`,
+        paidNames: [], paid: false,
         memberId: null, email, phone: '', date, time, col: '#1 Tee',
         onlineBookingId: bookingId
       };
-      await pool.query('UPDATE pos_data SET value=$1, updated_at=NOW() WHERE key=$2', [JSON.stringify(posData), 'pos_main']);
+      await pool.query(
+        'INSERT INTO pos_data(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=$2, updated_at=NOW()',
+        ['pos_main', JSON.stringify(latestData)]
+      );
     }
     await pool.query('UPDATE online_bookings SET pos_key=$1 WHERE id=$2', [posKey, bookingId]);
 
@@ -380,9 +388,14 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
       const pr = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
       if (pr.rows.length) {
         try {
-          const pd = JSON.parse(pr.rows[0].value);
-          delete pd.bookings[posKey];
-          await pool.query('UPDATE pos_data SET value=$1,updated_at=NOW() WHERE key=$2', [JSON.stringify(pd), 'pos_main']);
+          // Re-read latest before writing to avoid overwriting POS changes
+          const latestCR = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
+          const pd = latestCR.rows.length ? JSON.parse(latestCR.rows[0].value) : {};
+          if (pd.bookings) delete pd.bookings[posKey];
+          await pool.query(
+            'INSERT INTO pos_data(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=$2, updated_at=NOW()',
+            ['pos_main', JSON.stringify(pd)]
+          );
         } catch {}
       }
     }
