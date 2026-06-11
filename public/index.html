@@ -1016,7 +1016,7 @@ tr.unpaid-row{background:#FFF0F0}
   <div class="fg fg2"><div><label>Email address</label><input id="tm-email" type="email" placeholder="customer@email.com"></div><div><label>Phone (optional)</label><input id="tm-phone" placeholder="(307) 555-0000"></div></div>
   <div class="fg" style="margin-bottom:6px"><label>Select member (optional)</label><select id="tm-member-sel" onchange="fillBookingFromMember()"><option value="">— Not a member / type name manually —</option></select></div>
   <div id="tm-extra"></div>
-  <div class="fg fg2"><div><label>Holes</label><select id="tm-holes"><option value="18">18 holes</option><option value="9">9 holes</option></select></div><div><label>Cart rental</label><select id="tm-cart"><option value="none">No cart</option><option value="1">1 cart</option><option value="2">2 carts</option></select></div></div>
+  <div class="fg fg2"><div><label>Holes</label><select id="tm-holes"><option value="18">18 holes</option><option value="9">9 holes</option></select><div id="tm-holes-note" style="font-size:11px;color:#B8860B;margin-top:3px;display:none"></div></div><div><label>Cart rental</label><select id="tm-cart"><option value="none">No cart</option><option value="1">1 cart</option><option value="2">2 carts</option></select></div></div>
   <div class="fg" style="margin-bottom:10px"><label>Notes</label><input id="tm-notes" placeholder="Optional"></div>
   <div style="display:flex;gap:7px"><button class="btn bg-green" onclick="confirmBook()">✓ Book</button><button class="btn" onclick="closeOv('ov-tee-book')">Cancel</button></div>
   <div id="book-msg"></div>
@@ -2410,20 +2410,34 @@ function buildTeeBookMemberSelect(){
 }
 function openBookModal(date,time,col,holesOverride){
   var hs=getHoleBlockState(date,time);
-  if(!hs.none&&!holesOverride){
-    if(hs.both){alert('This time is fully blocked (9-hole & 18-hole):\n'+hs.reason);return;}
-    var partType=hs.h18?'18-hole':'9-hole';
-    var openType=hs.h18?'9-hole':'18-hole';
-    if(!confirm(partType+' tee times are blocked ('+hs.reason+').\n'+openType+' bookings are still available.\nProceed with a '+openType+' booking?'))return;
-  }
+  if(hs.both&&!holesOverride){alert('This time is fully blocked (9-hole & 18-hole):\n'+hs.reason);return;}
+  var _restrictHoles=null;
+  if(hs.h18&&!hs.h9)_restrictHoles='18';
+  if(hs.h9&&!hs.h18)_restrictHoles='9';
   var used=slotsUsed(date,time,col);if(used>=4){alert('This time slot is full.');return;}
-  pendingSlot={date:date,time:time,col:col};
-  $$('tee-slot-lbl').textContent=fmt12(time)+' — '+col;
+  pendingSlot={date:date,time:time,col:col,restrictHoles:_restrictHoles};
+  $$('tee-slot-lbl').textContent=fmt12(time)+' — '+col+(_restrictHoles==='18'?' ⚠️ 9-hole only':_restrictHoles==='9'?' ⚠️ 18-hole only':'');
   $$('tm-name').value='';$$('tm-email').value='';$$('tm-phone').value='';$$('tm-notes').value='';$$('tm-players').value='1';$$('tm-holes').value='18';$$('tm-cart').value='none';
   $$('book-msg').innerHTML='';
   buildTeeBookMemberSelect();
   $$('tm-member-sel').value='';
   updateSlotDots();updateExtraNames();
+  var _holesEl=$$('tm-holes'),_holesNote=$$('tm-holes-note');
+  if(_holesEl){
+    Array.from(_holesEl.options).forEach(function(o){o.disabled=false;});
+    if(_holesNote)_holesNote.style.display='none';
+    if(_restrictHoles==='18'){
+      var _o18=Array.from(_holesEl.options).find(function(o){return o.value==='18';});
+      if(_o18)_o18.disabled=true;
+      _holesEl.value='9';
+      if(_holesNote){_holesNote.textContent='⚠️ 18-hole rounds blocked at this time — 9-hole only';_holesNote.style.display='';}
+    }else if(_restrictHoles==='9'){
+      var _o9=Array.from(_holesEl.options).find(function(o){return o.value==='9';});
+      if(_o9)_o9.disabled=true;
+      _holesEl.value='18';
+      if(_holesNote){_holesNote.textContent='⚠️ 9-hole rounds blocked at this time — 18-hole only';_holesNote.style.display='';}
+    }
+  }
   openOv('ov-tee-book');
   setTimeout(function(){$$('tm-name').focus();},100);
 }
@@ -2644,20 +2658,35 @@ function renderTee(){
   TIMES.forEach(function(time){
     var isHour=time.slice(-2)==='00';
     var holeState=getHoleBlockState(date,time);
-    var isBlocked=!holeState.none;
+    var isFullBlock=holeState.both;
+    var isPartBlock=!holeState.none&&!holeState.both;
+    var isBlocked=isFullBlock;
     var display12=fmt12(time);
-    var blockInfo=isBlocked?getBlocksForDate(date).find(function(b){return b.type==='day'||(time>=b.start&&time<=b.end);}):null;
-    var blockTimeLabel=holeState.both?'&#x1F6AB;':holeState.h18?'<span style="font-size:7px;font-weight:700;color:#A32D2D">18h&#x1F6AB;</span>':holeState.h9?'<span style="font-size:7px;font-weight:700;color:#A32D2D">9h&#x1F6AB;</span>':'';
-    h+='<div class="tee-row" style="grid-template-columns:'+gc+(isBlocked?';background:#fff5f5':'')+'" data-blocked="'+(isBlocked?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(isBlocked?'<br>'+blockTimeLabel:'')+'</div>';
+    var blockInfo=!holeState.none?getBlocksForDate(date).find(function(b){return b.type==='day'||(time>=b.start&&time<=b.end);}):null;
+    var blockTimeLabel='';
+    if(isFullBlock)blockTimeLabel='&#x1F6AB;';
+    else if(holeState.h18)blockTimeLabel='<span style="font-size:7px;font-weight:700;color:#B8860B">18h&#x26A0;</span>';
+    else if(holeState.h9)blockTimeLabel='<span style="font-size:7px;font-weight:700;color:#B8860B">9h&#x26A0;</span>';
+    var rowBg=isFullBlock?';background:#fff5f5':isPartBlock?';background:#FFFBF0':'';
+    h+='<div class="tee-row" style="grid-template-columns:'+gc+rowBg+'" data-blocked="'+(isFullBlock?'1':'0')+'"><div class="tcell-time" style="'+(isHour?'font-weight:700;color:#1a1a1a;font-size:12px':'font-size:10px;color:#bbb')+'">'+display12+(!holeState.none?'<br>'+blockTimeLabel:'')+'</div>';
     cols.forEach(function(col){
       var slotBks=Object.entries(bookings).filter(function(e){var b=e[1];return b.date===date&&b.time===time&&b.col===col;});
       var used=slotBks.reduce(function(a,e){return a+parseInt(e[1].players);},0);total+=used;
-      if(isBlocked){
-        var holesBlockedLabel=holeState.both?'Both 9 & 18 blocked':holeState.h18?'18-hole blocked':holeState.h9?'9-hole blocked':'Blocked';
-        var blockLabel=(blockInfo?blockInfo.reason:'Blocked')+' — '+holesBlockedLabel;
+      if(isPartBlock){
+        h+='<div class="tcell-col" style="border-top:2px solid #B8860B" onclick="openBookModal(\''+date+'\',\''+time+'\',\''+col+'\')" title="'+(blockInfo?blockInfo.reason:'Partial block')+' — '+(holeState.h18?'18-hole':'9-hole')+' blocked, other holes open"><div class="slot-grid">';
+        var rendered=0;
+        slotBks.forEach(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);names.forEach(function(name,ni){if(rendered<4){
+          var isPaid=golferPaid(b,name);
+          var extraStyle=isPaid?'background:#EAF3DE;border-color:#639922;color:#27500A;':'background:#FFF9C4;border-color:#B8860B;color:#5C4500;';
+          if(b.holes==='9'&&!isPaid)extraStyle='background:#E6F1FB;border-color:#185FA5;color:#0C447C;';
+          h+='<div class="slot" style="'+extraStyle+'" draggable="true" ondragstart="teeDragStart(event,\''+key+'\')" onclick="event.stopPropagation();showDetail(\''+key+'\')" ondblclick="event.stopPropagation();loadGolfer(\''+key+'\','+ni+');goToTab(\'pos\')" title="'+name+(isPaid?' (PAID)':' (UNPAID)')+'">'+(isPaid?'<span style="font-size:9px;font-weight:700">&#x2713;</span> ':'')+'<span class="slot-name">'+name+'</span></div>';
+          rendered++;}});});
+        for(var ep=rendered;ep<4;ep++)h+='<div class="slot empty" ondragover="teeSlotOver(event,this)" ondragleave="teeSlotLeave(this)" ondrop="teeDrop(event,\''+date+'\',\''+time+'\',\''+col+'\')" onclick="event.stopPropagation();openBookModal(\''+date+'\',\''+time+'\',\''+col+'\')" title="'+(holeState.h18?'18-hole blocked — 9-hole available':'9-hole blocked — 18-hole available')+'">+</div>';
+        h+='</div></div>';
+      }else if(isFullBlock){
+        var blockLabel=(blockInfo?blockInfo.reason:'Blocked')+' — Both 9 & 18 blocked';
         var canOverride=currentUser&&(currentUser.role==='admin'||currentUser.role==='manager'||canDo('Override tee block'));
-        var isColFullyBlocked=holeState.both;
-        h+='<div class="tcell-col" style="'+(canOverride?'cursor:default':isColFullyBlocked?'cursor:not-allowed;pointer-events:none':'cursor:default')+'"><div class="slot-grid">';
+        h+='<div class="tcell-col" style="'+(canOverride?'cursor:default':'cursor:not-allowed;pointer-events:none')+'"><div class="slot-grid">';
         var rendered=0;
         slotBks.forEach(function(e){var key=e[0],b=e[1];var names=[b.name].concat(b.extras||[]).filter(Boolean);names.forEach(function(name,ni){if(rendered<4){
           var isPaid=golferPaid(b,name);
