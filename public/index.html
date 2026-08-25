@@ -680,6 +680,7 @@ tr.unpaid-row{background:#FFF0F0}
             <option value="gift_cert">Gift certificate activity</option>
           </optgroup>
           <optgroup label="Members">
+            <option value="member_activity">Member activity — rounds &amp; purchases</option>
             <option value="membership">Membership payments</option>
             <option value="mem_status">Member status &amp; expiry</option>
             <option value="mem_credit">Store credit balances</option>
@@ -835,13 +836,13 @@ tr.unpaid-row{background:#FFF0F0}
         <hr class="div">
         <h3>Sales Tax</h3>
         <div class="fg fg2">
-          <div><label>Tax rate (%)</label><input type="number" id="s-tax" value="8" step="0.1" oninput="applyTax()"></div>
+          <div><label>Tax rate (%)</label><input type="number" id="s-tax" step="0.1" placeholder="0" oninput="applyTax()"></div>
           <div><label>Tax label</label><input id="s-tax-lbl" value="Sales tax"></div>
         </div>
         <hr class="div">
         <h3>Cash Drawer</h3>
         <div class="fg fg2">
-          <div><label>Default starting amount ($)</label><input type="number" id="s-drawer-start" value="200" step="0.01" placeholder="200.00"></div>
+          <div><label>Default starting amount ($)</label><input type="number" id="s-drawer-start" step="0.01" placeholder="0.00"></div>
           <div style="display:flex;align-items:flex-end"><button class="btn bg-green btn-sm" onclick="applyDrawerStart()" style="width:100%">Apply to drawer</button></div>
         </div>
         <p style="font-size:11px;color:#666;margin-top:3px">Set this as the default opening amount in the cash drawer each day. Requires "Edit drawer starting amount" permission.</p>
@@ -854,14 +855,14 @@ tr.unpaid-row{background:#FFF0F0}
       <div class="card">
         <h3>Tee Sheet Pricing</h3>
         <div class="fg fg2">
-          <div><label>Green fee 18h ($)</label><input type="number" id="s-gf18" value="55" step="0.01"></div>
-          <div><label>Green fee 9h ($)</label><input type="number" id="s-gf9" value="32" step="0.01"></div>
+          <div><label>Green fee 18h ($)</label><input type="number" id="s-gf18" step="0.01" placeholder="0.00"></div>
+          <div><label>Green fee 9h ($)</label><input type="number" id="s-gf9" step="0.01" placeholder="0.00"></div>
         </div>
         <div class="fg fg2">
-          <div><label>Cart fee ($)</label><input type="number" id="s-cart" value="18" step="0.01"></div>
-          <div><label>Trail fee ($)</label><input type="number" id="s-trail" value="10" step="0.01"></div>
+          <div><label>Cart fee ($)</label><input type="number" id="s-cart" step="0.01" placeholder="0.00"></div>
+          <div><label>Trail fee ($)</label><input type="number" id="s-trail" step="0.01" placeholder="0.00"></div>
         </div>
-        <div class="fg" style="margin-bottom:4px"><label>Range fee ($)</label><input type="number" id="s-range" value="8" step="0.01"></div>
+        <div class="fg" style="margin-bottom:4px"><label>Range fee ($)</label><input type="number" id="s-range" step="0.01" placeholder="0.00"></div>
       </div>
     </div>
     <div class="col">
@@ -1424,34 +1425,20 @@ function saveUser(){
 // CONFIG & STATE
 // ============================================================
 var CFG = {
-  tax:8,cur:'$',courseName:'Green Hills Golf Club',
+  tax:0,cur:'$',courseName:'Green Hills Golf Club',
   teeCols:['#1 Tee','#10 Tee','Back 9'],
   teeStart:'06:00',teeEnd:'18:00',teeInt:8,
-  prices:{gf18:55,gf9:32,cart:18,trail:10,range:8},
+  prices:{gf18:0,gf9:0,cart:0,trail:0,range:0},
   memExpiry:'',
 };
-var memTypes=[{name:'Single',price:800},{name:'Couple',price:1400},{name:'Family',price:1800}];
-var addonTypes=[{name:'Cart membership',price:300},{name:'Range membership',price:200},{name:'Trail fee',price:150}];
+var memTypes=[];
+var addonTypes=[];
 var TIMES=[];
 var discounts=[];
-var products=[
-  {id:1,name:'Golf Glove',price:14.99,cat:'Gear',stock:15,sku:'GLOVE',low:3},
-  {id:2,name:'Polo Shirt',price:45,cat:'Apparel',stock:20,sku:'POLO',low:3},
-  {id:3,name:'Hat',price:28,cat:'Apparel',stock:12,sku:'HAT',low:3},
-  {id:4,name:'Tees 50pk',price:4.99,cat:'Gear',stock:50,sku:'TEES',low:10},
-  {id:5,name:'Pro V1 (dozen)',price:54.99,cat:'Balls',stock:30,sku:'PV1',low:5},
-  {id:6,name:'Snack',price:3.50,cat:'Food',stock:50,sku:'SNACK',low:5},
-  {id:7,name:'Sports Drink',price:2.50,cat:'Food',stock:50,sku:'DRINK',low:5},
-  {id:8,name:'Club Rental',price:35,cat:'Rentals',stock:10,sku:'CLUBS',low:2}
-];
-var nextPid=9;
-var courseFees=[
-  {id:1,name:'Green Fee 18 Holes',price:55,icon:'⛳',desc:'18-hole round'},
-  {id:2,name:'Green Fee 9 Holes',price:32,icon:'⛳',desc:'9-hole round'},
-  {id:3,name:'Cart Rental',price:18,icon:'🛻',desc:'Per cart'},
-  {id:4,name:'Range Bucket',price:8,icon:'🏌️',desc:'Driving range'}
-];
-var nextCfId=5;
+var products=[];
+var nextPid=1;
+var courseFees=[];
+var nextCfId=1;
 var tournaments=[];
 var nextTid=1;
 var cart=[],cartId=0;
@@ -1464,12 +1451,8 @@ var splits=[];
 var posMemberId=null;
 var eodHistory=[];
 var teeBlocks=[]; // [{id,date,type:'day'|'range',start,end,reason}]
-var members=[
-  {id:1,first:'John',last:'Smith',phone:'(307)555-0101',email:'john@email.com',addr:'123 Main St',type:'Single',addons:[],spouse:'',family:'',exp:'2025-12-31',dues:800,paid:true,credit:0,creditH:[],isMember:true},
-  {id:2,first:'Mary',last:'Johnson',phone:'(307)555-0102',email:'mary@email.com',addr:'456 Oak Ave',type:'Couple',addons:['Cart membership'],spouse:'Tom Johnson',family:'',exp:'2025-12-31',dues:1700,paid:false,credit:50,creditH:[{date:'5/10',type:'add',amt:50,reason:'Tournament win'}],isMember:true},
-  {id:3,first:'Bob',last:'Williams',phone:'(307)555-0103',email:'bob@email.com',addr:'789 Pine Rd',type:'Family',addons:['Range membership','Trail fee'],spouse:'Sue Williams',family:'Jake, Emma',exp:'2025-12-31',dues:2150,paid:false,credit:25,creditH:[{date:'5/8',type:'add',amt:25,reason:'Tournament 2nd'}],isMember:true}
-];
-var nextMid=4;
+var members=[];
+var nextMid=1;
 
 // ============================================================
 // UTILS
@@ -2065,7 +2048,9 @@ function completeSale(){
   }
   var items=cart.map(function(x){return x.name+(x.qty>1?' x'+x.qty:'');}).join(', ');
   var cats={};cart.forEach(function(x){cats[x.cat]=(cats[x.cat]||0)+x.price*x.qty;});
-  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,taxAmt:taxOn?parseFloat((taxSub*CFG.tax/100).toFixed(2)):0,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||''});
+  var saleMemberId=posMemberId||(function(){var mi=cart.find(function(x){return x.memberId;});return mi?mi.memberId:null;})();
+  var saleMember=saleMemberId?members.find(function(m){return m.id===saleMemberId;}):null;
+  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,taxAmt:taxOn?parseFloat((taxSub*CFG.tax/100).toFixed(2)):0,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||'',memberId:saleMemberId,memberName:saleMember?(saleMember.first+' '+saleMember.last):null});
   // Auto-book walk-ins for green fee sales not linked to a tee time
   var walkInItems=cart.filter(function(x){return !x.teeKey&&x._cfHoles;});
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
@@ -2420,7 +2405,7 @@ function _autoBookWalkIn(holes){
   }
   if(!slot){sMsg('sale-msg','Sale complete — no open tee times found for walk-in today.','amber');return;}
   var key=bookingKey(date,slot,col);
-  bookings[key]={name:'Walk-in',extras:[],players:1,holes:holes||'18',cart:'none',notes:'Walk-in — paid at POS',paidNames:['Walk-in'],paid:true,memberId:null,date:date,time:slot,col:col};
+  bookings[key]={name:'Walk-in',extras:[],players:1,holes:holes||'18',cart:'none',notes:'Walk-in — paid at POS',paidNames:['Walk-in'],paid:true,memberId:posMemberId||null,date:date,time:slot,col:col};
   renderTee();
   saveState();
 }
@@ -3432,6 +3417,25 @@ function getSalesFor(period,dateEl){
   }
   return sales;
 }
+function getBookingsFor(period,dateEl){
+  var now=new Date();
+  function toDate(dstr){return new Date(dstr+'T12:00:00');}
+  var arr=Object.values(bookings);
+  if(period==='today')return arr.filter(function(b){return b.date===todayStr();});
+  if(period==='yesterday'){var y=new Date(now-86400000);var ys=y.toISOString().split('T')[0];return arr.filter(function(b){return b.date===ys;});}
+  if(period==='week'){var wd=now.getDay(),start=new Date(now);start.setDate(now.getDate()-wd);start.setHours(0,0,0,0);var end=new Date(start);end.setDate(start.getDate()+6);end.setHours(23,59,59,999);return arr.filter(function(b){var d=toDate(b.date);return d>=start&&d<=end;});}
+  if(period==='last-week'){var ref=new Date(now);ref.setDate(now.getDate()-7);var wd2=ref.getDay(),s2=new Date(ref);s2.setDate(ref.getDate()-wd2);s2.setHours(0,0,0,0);var e2=new Date(s2);e2.setDate(s2.getDate()+6);e2.setHours(23,59,59,999);return arr.filter(function(b){var d=toDate(b.date);return d>=s2&&d<=e2;});}
+  if(period==='month')return arr.filter(function(b){var d=toDate(b.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});
+  if(period==='last-month'){var lm=now.getMonth()===0?11:now.getMonth()-1,ly=now.getMonth()===0?now.getFullYear()-1:now.getFullYear();return arr.filter(function(b){var d=toDate(b.date);return d.getMonth()===lm&&d.getFullYear()===ly;});}
+  if(period==='custom'){var cd=$$(dateEl)?$$(dateEl).value:'';if(!cd)return[];return arr.filter(function(b){return b.date===cd;});}
+  if(period==='range'){
+    var rs2=$$('rpt-range-start')?$$('rpt-range-start').value:'';
+    var re2=$$('rpt-range-end')?$$('rpt-range-end').value:'';
+    if(!rs2||!re2)return[];
+    return arr.filter(function(b){return b.date>=rs2&&b.date<=re2;});
+  }
+  return arr;
+}
 
 // ============================================================
 // TIME CLOCK
@@ -3563,7 +3567,21 @@ function runReport(){var type=$$('rpt-type').value,pa=$$('rpt-a').value,isComp=t
   if(type==='cash_reconciliation'){runCashReconReport();return;}
   if(type==='inventory'){runInventoryReport();return;}
   if(type==='timeclock'){runTimeclockReport();return;}
-  var sA=getSalesFor(pa,'rpt-a-date');var html='';if(type==='summary'){var rev=sA.reduce(function(a,s){return a+s.total;},0);var refAmt=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">Transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Gross revenue</div><div class="val">'+C(rev)+'</div></div><div class="stat"><div class="lbl">Refunds</div><div class="val">'+C(Math.abs(refAmt))+'</div></div><div class="stat"><div class="lbl">Net revenue</div><div class="val">'+C(rev+refAmt)+'</div></div></div>';}else if(type==='rounds'){var bkArr=Object.values(bookings);var r18=bkArr.filter(function(b){return b.holes==='18';}).reduce(function(a,b){return a+parseInt(b.players);},0);var r9=bkArr.filter(function(b){return b.holes==='9';}).reduce(function(a,b){return a+parseInt(b.players);},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">18-hole rounds</div><div class="val">'+r18+'</div></div><div class="stat"><div class="lbl">9-hole rounds</div><div class="val">'+r9+'</div></div><div class="stat"><div class="lbl">Total players</div><div class="val">'+(r18+r9)+'</div></div><div class="stat"><div class="lbl">Bookings</div><div class="val">'+Object.keys(bookings).length+'</div></div></div>';}else if(type==='category'){var cats={};sA.forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)cats[e[0]]=(cats[e[0]]||0)+e[1];});});var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];});html=sorted.length?sorted.map(function(e){var max=Math.max.apply(null,sorted.map(function(x){return x[1];}));var pct=Math.round(e[1]/max*100);return'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px"><span>'+e[0]+'</span><span style="font-weight:700">'+C(e[1])+'</span></div><div class="pbar" style="height:8px"><div class="pfill" style="width:'+pct+'%;background:#185FA5"></div></div></div>';}).join(''):'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='method'){var methods={};sA.filter(function(s){return s.total>0;}).forEach(function(s){methods[s.method]=(methods[s.method]||0)+s.total;});html=Object.keys(methods).length?'<table><thead><tr><th>Method</th><th>Revenue</th><th>Count</th></tr></thead><tbody>'+Object.entries(methods).map(function(e){return'<tr><td><span class="badge b-blue">'+e[0]+'</span></td><td style="font-weight:700">'+C(e[1])+'</td><td>'+sA.filter(function(s){return s.method===e[0]&&s.total>0;}).length+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='comparison'){var sB=getSalesFor($$('rpt-b').value,'rpt-b-date');var revA=sA.reduce(function(a,s){return a+Math.max(0,s.total);},0);var revB=sB.reduce(function(a,s){return a+Math.max(0,s.total);},0);var diff=revA-revB,pctChg=revB>0?((diff/revB)*100).toFixed(1):null;html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px"><div class="stat"><div class="lbl">Period A — transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period B — transactions</div><div class="val">'+sB.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period A — revenue</div><div class="val">'+C(revA)+'</div></div><div class="stat"><div class="lbl">Period B — revenue</div><div class="val">'+C(revB)+'</div></div></div><div class="msg '+(diff>=0?'m-green':'m-red')+'">Net change: <strong>'+(diff>=0?'+':'')+C(diff)+'</strong>'+(pctChg?' ('+(diff>=0?'+':'')+pctChg+'%)':'')+'</div>';}else if(type==='membership'){var ms=sA.filter(function(s){return s.items.toLowerCase().indexOf('membership')>=0;});html=ms.length?'<table><thead><tr><th>Time</th><th>Member</th><th>Method</th><th>Amount</th></tr></thead><tbody>'+ms.map(function(s){return'<tr><td>'+s.time+'</td><td style="font-size:12px">'+s.items+'</td><td><span class="badge b-blue">'+s.method+'</span></td><td style="font-weight:700">'+C(s.total)+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No membership payments in selected period.</div>';}$$('rpt-output').innerHTML=html;}
+  var sA=getSalesFor(pa,'rpt-a-date');var html='';if(type==='summary'){var rev=sA.reduce(function(a,s){return a+s.total;},0);var refAmt=sA.filter(function(s){return s.total<0;}).reduce(function(a,s){return a+s.total;},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">Transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Gross revenue</div><div class="val">'+C(rev)+'</div></div><div class="stat"><div class="lbl">Refunds</div><div class="val">'+C(Math.abs(refAmt))+'</div></div><div class="stat"><div class="lbl">Net revenue</div><div class="val">'+C(rev+refAmt)+'</div></div></div>';}else if(type==='rounds'){var bkArr=Object.values(bookings);var r18=bkArr.filter(function(b){return b.holes==='18';}).reduce(function(a,b){return a+parseInt(b.players);},0);var r9=bkArr.filter(function(b){return b.holes==='9';}).reduce(function(a,b){return a+parseInt(b.players);},0);html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px"><div class="stat"><div class="lbl">18-hole rounds</div><div class="val">'+r18+'</div></div><div class="stat"><div class="lbl">9-hole rounds</div><div class="val">'+r9+'</div></div><div class="stat"><div class="lbl">Total players</div><div class="val">'+(r18+r9)+'</div></div><div class="stat"><div class="lbl">Bookings</div><div class="val">'+Object.keys(bookings).length+'</div></div></div>';}else if(type==='category'){var cats={};sA.forEach(function(s){if(s.cats)Object.entries(s.cats).forEach(function(e){if(e[1]>0)cats[e[0]]=(cats[e[0]]||0)+e[1];});});var sorted=Object.entries(cats).sort(function(a,b){return b[1]-a[1];});html=sorted.length?sorted.map(function(e){var max=Math.max.apply(null,sorted.map(function(x){return x[1];}));var pct=Math.round(e[1]/max*100);return'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px"><span>'+e[0]+'</span><span style="font-weight:700">'+C(e[1])+'</span></div><div class="pbar" style="height:8px"><div class="pfill" style="width:'+pct+'%;background:#185FA5"></div></div></div>';}).join(''):'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='method'){var methods={};sA.filter(function(s){return s.total>0;}).forEach(function(s){methods[s.method]=(methods[s.method]||0)+s.total;});html=Object.keys(methods).length?'<table><thead><tr><th>Method</th><th>Revenue</th><th>Count</th></tr></thead><tbody>'+Object.entries(methods).map(function(e){return'<tr><td><span class="badge b-blue">'+e[0]+'</span></td><td style="font-weight:700">'+C(e[1])+'</td><td>'+sA.filter(function(s){return s.method===e[0]&&s.total>0;}).length+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No sales recorded.</div>';}else if(type==='comparison'){var sB=getSalesFor($$('rpt-b').value,'rpt-b-date');var revA=sA.reduce(function(a,s){return a+Math.max(0,s.total);},0);var revB=sB.reduce(function(a,s){return a+Math.max(0,s.total);},0);var diff=revA-revB,pctChg=revB>0?((diff/revB)*100).toFixed(1):null;html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px"><div class="stat"><div class="lbl">Period A — transactions</div><div class="val">'+sA.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period B — transactions</div><div class="val">'+sB.filter(function(s){return s.total>0;}).length+'</div></div><div class="stat"><div class="lbl">Period A — revenue</div><div class="val">'+C(revA)+'</div></div><div class="stat"><div class="lbl">Period B — revenue</div><div class="val">'+C(revB)+'</div></div></div><div class="msg '+(diff>=0?'m-green':'m-red')+'">Net change: <strong>'+(diff>=0?'+':'')+C(diff)+'</strong>'+(pctChg?' ('+(diff>=0?'+':'')+pctChg+'%)':'')+'</div>';}else if(type==='membership'){var ms=sA.filter(function(s){return s.items.toLowerCase().indexOf('membership')>=0;});html=ms.length?'<table><thead><tr><th>Time</th><th>Member</th><th>Method</th><th>Amount</th></tr></thead><tbody>'+ms.map(function(s){return'<tr><td>'+s.time+'</td><td style="font-size:12px">'+s.items+'</td><td><span class="badge b-blue">'+s.method+'</span></td><td style="font-weight:700">'+C(s.total)+'</td></tr>';}).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No membership payments in selected period.</div>';}else if(type==='member_activity'){
+    var bkA=getBookingsFor(pa,'rpt-a-date');
+    var actives=members.filter(function(m){return m.isMember!==false;});
+    var mrows=actives.map(function(m){
+      var rounds=bkA.filter(function(b){return b.memberId===m.id;});
+      var r18=rounds.filter(function(b){return b.holes==='18';}).length;
+      var r9=rounds.filter(function(b){return b.holes==='9';}).length;
+      var purch=sA.filter(function(s){return s.memberId===m.id&&s.total>0;});
+      var purchTotal=purch.reduce(function(a,s){return a+s.total;},0);
+      return{m:m,rounds:rounds.length,r18:r18,r9:r9,purchCount:purch.length,purchTotal:purchTotal};
+    }).filter(function(r){return r.rounds>0||r.purchCount>0;}).sort(function(a,b){return(b.purchTotal+b.rounds*10)-(a.purchTotal+a.rounds*10);});
+    html=mrows.length?'<table><thead><tr><th>Member</th><th>Type</th><th>Rounds played</th><th>18h / 9h</th><th>Purchases</th><th>Amount spent</th></tr></thead><tbody>'+mrows.map(function(r){
+      return'<tr><td style="font-weight:600">'+r.m.first+' '+r.m.last+'</td><td><span class="badge b-blue">'+(r.m.type||'')+'</span></td><td style="text-align:center;font-weight:700">'+r.rounds+'</td><td style="text-align:center;font-size:12px">'+r.r18+' / '+r.r9+'</td><td style="text-align:center">'+r.purchCount+'</td><td style="font-weight:700">'+C(r.purchTotal)+'</td></tr>';
+    }).join('')+'</tbody></table>':'<div style="color:#888;font-size:13px">No member rounds or purchases in selected period.</div>';
+  }$$('rpt-output').innerHTML=html;}
 
 function runCashReconReport(){
   var isAdm=!currentUser||currentUser.role==='admin'||currentUser.role==='manager';
@@ -3752,7 +3770,7 @@ function printReport(){
 // ============================================================
 // SETTINGS
 // ============================================================
-function applyTax(){CFG.tax=parseFloat($$('s-tax').value)||8;CFG.cur=$$('s-currency').value||'$';$$('tax-rate-lbl').textContent=CFG.tax;calcCart();}
+function applyTax(){CFG.tax=parseFloat($$('s-tax').value)||0;CFG.cur=$$('s-currency').value||'$';$$('tax-rate-lbl').textContent=CFG.tax;calcCart();}
 function renderTeeCols(){$$('tee-cols-list').innerHTML=CFG.teeCols.map(function(c,i){return'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><input value="'+c+'" onchange="CFG.teeCols['+i+']=this.value" style="flex:1"><button class="btn bg-red btn-sm" onclick="CFG.teeCols.splice('+i+',1);renderTeeCols()">✕</button></div>';}).join('');}
 function addTeeCol(){var v=$$('new-col').value.trim();if(!v)return;CFG.teeCols.push(v);$$('new-col').value='';renderTeeCols();}
 function renderDiscounts(){
@@ -3810,14 +3828,14 @@ function saveSettings(){
   applyTax();
   CFG.courseName=$$('s-name').value||'Green Hills Golf Club';
   $$('course-name').textContent=CFG.courseName;
-  CFG.teeStart=$$('s-tee-start').value||'07:00';
+  CFG.teeStart=$$('s-tee-start').value||'06:00';
   CFG.teeEnd=$$('s-tee-end').value||'18:00';
-  CFG.teeInt=parseInt($$('s-tee-int').value)||10;
-  CFG.prices.gf18=parseFloat($$('s-gf18').value)||55;
-  CFG.prices.gf9=parseFloat($$('s-gf9').value)||32;
-  CFG.prices.cart=parseFloat($$('s-cart').value)||18;
-  CFG.prices.trail=parseFloat($$('s-trail').value)||10;
-  CFG.prices.range=parseFloat($$('s-range').value)||8;
+  CFG.teeInt=parseInt($$('s-tee-int').value)||8;
+  CFG.prices.gf18=parseFloat($$('s-gf18').value)||0;
+  CFG.prices.gf9=parseFloat($$('s-gf9').value)||0;
+  CFG.prices.cart=parseFloat($$('s-cart').value)||0;
+  CFG.prices.trail=parseFloat($$('s-trail').value)||0;
+  CFG.prices.range=parseFloat($$('s-range').value)||0;
   CFG.memExpiry=$$('s-mem-exp').value||'';
   buildTimes();renderTeeCols();buildMemTypeFilter();
   renderPosCourseFees();
@@ -3828,24 +3846,24 @@ function saveSettings(){
 // Populate every settings input from CFG — called after load so UI always reflects saved values
 function populateSettingsFields(){
   if($$('s-name'))$$('s-name').value=CFG.courseName||'';
-  if($$('s-tax'))$$('s-tax').value=CFG.tax||8;
+  if($$('s-tax'))$$('s-tax').value=CFG.tax||'';
   if($$('s-tax-lbl'))$$('s-tax-lbl').value=CFG.taxLabel||'Sales tax';
-  if($$('s-tee-start'))$$('s-tee-start').value=CFG.teeStart||'07:00';
+  if($$('s-tee-start'))$$('s-tee-start').value=CFG.teeStart||'06:00';
   if($$('s-tee-end'))$$('s-tee-end').value=CFG.teeEnd||'18:00';
   if($$('s-tee-int')){
-    var iv=String(CFG.teeInt||10);
+    var iv=String(CFG.teeInt||8);
     for(var i=0;i<$$('s-tee-int').options.length;i++){
       if($$('s-tee-int').options[i].value===iv){$$('s-tee-int').selectedIndex=i;break;}
     }
   }
-  if($$('s-gf18'))$$('s-gf18').value=(CFG.prices&&CFG.prices.gf18)||55;
-  if($$('s-gf9'))$$('s-gf9').value=(CFG.prices&&CFG.prices.gf9)||32;
-  if($$('s-cart'))$$('s-cart').value=(CFG.prices&&CFG.prices.cart)||18;
-  if($$('s-trail'))$$('s-trail').value=(CFG.prices&&CFG.prices.trail)||10;
-  if($$('s-range'))$$('s-range').value=(CFG.prices&&CFG.prices.range)||8;
+  if($$('s-gf18'))$$('s-gf18').value=(CFG.prices&&CFG.prices.gf18)||'';
+  if($$('s-gf9'))$$('s-gf9').value=(CFG.prices&&CFG.prices.gf9)||'';
+  if($$('s-cart'))$$('s-cart').value=(CFG.prices&&CFG.prices.cart)||'';
+  if($$('s-trail'))$$('s-trail').value=(CFG.prices&&CFG.prices.trail)||'';
+  if($$('s-range'))$$('s-range').value=(CFG.prices&&CFG.prices.range)||'';
   if($$('s-mem-exp'))$$('s-mem-exp').value=CFG.memExpiry||'';
   if($$('s-currency'))$$('s-currency').value=CFG.cur||'$';
-  if($$('tax-rate-lbl'))$$('tax-rate-lbl').textContent=CFG.tax||8;
+  if($$('tax-rate-lbl'))$$('tax-rate-lbl').textContent=CFG.tax||0;
 }
 
 // ============================================================
@@ -4278,7 +4296,9 @@ function _completeCardSale(printAfter){
   });
   var items=cart.map(function(x){return x.name+(x.qty>1?' x'+x.qty:'');}).join(', ');
   var cats={};cart.forEach(function(x){cats[x.cat]=(cats[x.cat]||0)+x.price*x.qty;});
-  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:'card (CardPointe)',total:tot,cats:cats,ts:Date.now(),retref:cpLastRetref||''});
+  var saleMemberId=posMemberId||(function(){var mi=cart.find(function(x){return x.memberId;});return mi?mi.memberId:null;})();
+  var saleMember=saleMemberId?members.find(function(m){return m.id===saleMemberId;}):null;
+  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:'card (CardPointe)',total:tot,cats:cats,ts:Date.now(),retref:cpLastRetref||'',memberId:saleMemberId,memberName:saleMember?(saleMember.first+' '+saleMember.last):null});
   updateStats();renderSalesLog();
   if(posMemberId)renderPosMemberBox(posMemberId);
   var snap=cart.slice();
