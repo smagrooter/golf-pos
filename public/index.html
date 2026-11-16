@@ -444,7 +444,7 @@ tr.unpaid-row{background:#FFF0F0}
           </select>
         </div>
         <table style="table-layout:fixed">
-          <thead><tr><th style="width:42px">Time</th><th>Items</th><th style="width:60px">Method</th><th style="width:55px">Total</th><th style="width:30px"></th></tr></thead>
+          <thead><tr><th style="width:42px">Time</th><th>Items</th><th style="width:60px">Method</th><th style="width:55px">Total</th><th style="width:54px"></th></tr></thead>
           <tbody id="sales-log"></tbody>
         </table>
       </div>
@@ -993,30 +993,43 @@ tr.unpaid-row{background:#FFF0F0}
   </div>
   <div class="card"><button class="btn bg-green" onclick="saveSettings()">✓ Save All Settings</button>
   <div class="card" id="cp-settings-card" style="margin-top:10px;border-color:#185FA5">
-    <h3 style="color:#185FA5">💳 CardPointe Payment Gateway</h3>
-    <div style="background:#E6F1FB;border-radius:8px;padding:8px 11px;font-size:12px;color:#0C447C;margin-bottom:10px">
-      Enter your CardPointe credentials. Use <strong>Demo</strong> mode for testing — no real charges.
+    <h3 style="color:#185FA5">💳 CardPointe Payments</h3>
+    <div id="cp-status" style="background:#E6F1FB;border-radius:8px;padding:8px 11px;font-size:12px;color:#0C447C;margin-bottom:10px">Checking the payment server…</div>
+    <div class="sec-lbl">Merchant account — saved on the server, shared by every register</div>
+    <div class="fg fg3">
+      <div><label>Merchant ID (MID)</label><input id="cp-merchid" placeholder="from your welcome kit" autocomplete="off"></div>
+      <div><label>Gateway site</label><input id="cp-site" placeholder="e.g. fts" autocomplete="off"></div>
+      <div><label>Terminal site <span style="font-size:10px;color:#888">(blank = same)</span></label><input id="cp-term-site" placeholder="same as gateway site" autocomplete="off"></div>
     </div>
-    <div class="fg fg2">
-      <div><label>Site name (e.g. "fts")</label><input id="cp-site" placeholder="fts"></div>
-      <div><label>Merchant ID</label><input id="cp-merchid" placeholder="000000000000"></div>
+    <div class="fg fg3">
+      <div><label>Gateway API username</label><input id="cp-user" autocomplete="off"></div>
+      <div><label>Gateway API password</label><input id="cp-pass" type="password" autocomplete="new-password"></div>
+      <div><label>Terminal API key</label><input id="cp-term-key" type="password" autocomplete="new-password"></div>
     </div>
-    <div class="fg fg2">
-      <div><label>API Username</label><input id="cp-user" placeholder="API username"></div>
-      <div><label>API Password</label><input id="cp-pass" type="password" placeholder="API password"></div>
+    <div class="fg fg2" style="margin-bottom:9px">
+      <div><label>Mode</label>
+        <select id="cp-mode">
+          <option value="demo">Demo (simulated — no real charges)</option>
+          <option value="test">UAT / Sandbox (test cards)</option>
+          <option value="live">Live / Production</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end"><button class="btn bg-blue" onclick="saveCardPointeSettings()" style="width:100%">Save merchant settings</button></div>
     </div>
-    <div class="fg" style="margin-bottom:9px">
-      <label>Mode</label>
-      <select id="cp-mode">
-        <option value="demo">Demo (no real charges)</option>
-        <option value="test">UAT / Sandbox</option>
-        <option value="live">Live / Production</option>
-      </select>
+    <hr class="div">
+    <div class="sec-lbl">This register — saved on this computer only</div>
+    <div class="fg fg3">
+      <div><label>Register name</label><input id="cp-ws-register" placeholder="e.g. Front Counter"></div>
+      <div><label>Terminal HSN (serial #)</label><input id="cp-ws-hsn" list="cp-hsn-list" placeholder="on the back of the terminal" autocomplete="off"><datalist id="cp-hsn-list"></datalist></div>
+      <div><label>Workstation key</label><input id="cp-ws-key" type="password" placeholder="POS_API_KEY from Railway" autocomplete="new-password"></div>
     </div>
-    <div style="display:flex;gap:7px">
-      <button class="btn bg-blue" onclick="saveCardPointeSettings()">Save CardPointe Settings</button>
-      <button class="btn" onclick="openDemoCard()">Test Demo Charge</button>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button class="btn bg-green" onclick="cpSaveRegister()">Save this register</button>
+      <button class="btn" onclick="cpFindTerminals()">🔍 Find terminals</button>
+      <button class="btn" onclick="cpTestTerminal()">📟 Test terminal</button>
+      <button class="btn bg-amber" onclick="cpTestCharge()">Test $1.00 charge</button>
     </div>
+    <div id="cp-settings-msg"></div>
   </div>
 
   <span id="s-saved" style="margin-left:10px;font-size:13px;color:#27500A;font-weight:600"></span></div>
@@ -1213,56 +1226,44 @@ tr.unpaid-row{background:#FFF0F0}
 </div></div>
 
 
-<!-- CardPointe Payment Modal -->
+<!-- CardPointe Payment Modal — integrated terminal (no card numbers typed into the POS) -->
 <div id="ov-cardpointe" class="ov"><div class="cp-modal">
-  <div class="modal-hdr">&#x1F4B3; Card Payment <button class="btn btn-sm" onclick="closeOv('ov-cardpointe')">&#x2715;</button></div>
+  <div class="modal-hdr">&#x1F4B3; <span id="cp-title" style="flex:1;margin-left:6px">Card Payment</span> <button class="btn btn-sm" id="cp-close-x" onclick="cpCloseModal()">&#x2715;</button></div>
   <div id="cp-step-entry">
-    <div style="text-align:center;margin-bottom:14px">
+    <div style="text-align:center;margin-bottom:12px">
       <div style="font-size:28px;font-weight:700;color:#185FA5" id="cp-amount-display">$0.00</div>
-      <div style="font-size:12px;color:#888;margin-top:3px">Amount to charge</div>
+      <div style="font-size:12px;color:#888;margin-top:3px" id="cp-amount-sub">Amount to charge</div>
     </div>
-    <div class="fg" style="margin-bottom:6px">
-      <label>Card Number</label>
-      <input id="cp-card-num" class="cp-card-input" placeholder="4111 1111 1111 1111" maxlength="19" oninput="fmtCard(this)" inputmode="numeric">
-    </div>
-    <div class="fg fg2" style="margin-bottom:6px">
-      <div><label>Expiry (MMYY)</label><input id="cp-expiry" placeholder="1228" maxlength="4" inputmode="numeric"></div>
-      <div><label>CVV</label><input id="cp-cvv" placeholder="123" maxlength="4" inputmode="numeric"></div>
-    </div>
-    <div class="fg fg2" style="margin-bottom:10px">
-      <div><label>ZIP (optional)</label><input id="cp-zip" placeholder="82443" maxlength="5" inputmode="numeric"></div>
-      <div><label>Name on card</label><input id="cp-name" placeholder="Jane Doe"></div>
-    </div>
-    <div style="display:flex;gap:7px">
-      <button class="btn bg-green" onclick="submitCardPayment()" style="flex:1;padding:10px">Charge Card</button>
-      <button class="btn bg-amber" onclick="simulateSwipe()">&#x26A1; Test Swipe</button>
-    </div>
-    <div id="cp-msg"></div>
-  </div>
-  <div id="cp-step-processing" style="display:none;text-align:center;padding:28px 0">
-    <span class="cp-spinner"></span>
-    <div style="font-size:14px;color:#444;margin-top:12px" id="cp-processing-msg">Processing...</div>
-  </div>
-  <div id="cp-step-result" style="display:none">
-    <div id="cp-result-box" style="text-align:center;padding:12px 0"></div>
     <div id="cp-tip-row" style="background:#f8f8f4;border-radius:8px;padding:10px 12px;margin-bottom:10px">
-      <div style="font-size:12px;color:#666;margin-bottom:6px">Add tip? (optional)</div>
+      <div style="font-size:12px;color:#666;margin-bottom:6px">Add tip? (optional — added before the card is run)</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-sm" onclick="setTip(0)">No tip</button>
         <button class="btn btn-sm" onclick="setTip(0.15)">15%</button>
         <button class="btn btn-sm" onclick="setTip(0.18)">18%</button>
         <button class="btn btn-sm" onclick="setTip(0.20)">20%</button>
-        <button class="btn btn-sm" onclick="setTip(0.25)">25%</button>
         <div style="display:flex;align-items:center;gap:4px;margin-left:auto">
           <span style="font-size:12px;color:#666">Custom $</span>
           <input type="number" id="tip-custom" placeholder="0.00" step="0.01" min="0" oninput="setCustomTip(this.value)" style="width:70px;font-size:13px">
         </div>
       </div>
-      <div style="font-size:12px;margin-top:7px;color:#444">Tip: <strong id="tip-display">$0.00</strong> &nbsp;&bull;&nbsp; New total: <strong id="tip-total-display">$0.00</strong></div>
+      <div style="font-size:12px;margin-top:7px;color:#444">Tip: <strong id="tip-display">$0.00</strong> &nbsp;&bull;&nbsp; Total: <strong id="tip-total-display">$0.00</strong></div>
     </div>
+    <div id="cp-register-line" style="font-size:12px;color:#555;margin-bottom:10px"></div>
     <div style="display:flex;gap:7px">
-      <button class="btn bg-green" id="cp-complete-print" onclick="finishCardPaymentAndPrint()" style="flex:1">Complete + Print Receipt</button>
-      <button class="btn" id="cp-complete-no-receipt" onclick="finishCardPayment()">No Receipt</button>
+      <button class="btn bg-green" onclick="cpStartCharge()" style="flex:1;padding:10px;font-size:14px">&#x1F4DF; Send to terminal</button>
+      <button class="btn" onclick="cpCloseModal()">Cancel</button>
     </div>
+    <div id="cp-msg"></div>
+  </div>
+  <div id="cp-step-processing" style="display:none;text-align:center;padding:24px 0">
+    <span class="cp-spinner"></span>
+    <div style="font-size:15px;font-weight:600;color:#444;margin-top:12px" id="cp-processing-msg">Processing...</div>
+    <div style="font-size:12px;color:#888;margin-top:5px" id="cp-processing-sub"></div>
+    <button class="btn bg-red" onclick="cpCancelTerminal()" style="margin-top:16px">&#x2715; Cancel on terminal</button>
+  </div>
+  <div id="cp-step-result" style="display:none">
+    <div id="cp-result-box" style="text-align:center;padding:12px 0"></div>
+    <div id="cp-result-actions" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:6px"></div>
   </div>
 </div></div>
 
@@ -2050,7 +2051,7 @@ function completeSale(){
   var cats={};cart.forEach(function(x){cats[x.cat]=(cats[x.cat]||0)+x.price*x.qty;});
   var saleMemberId=posMemberId||(function(){var mi=cart.find(function(x){return x.memberId;});return mi?mi.memberId:null;})();
   var saleMember=saleMemberId?members.find(function(m){return m.id===saleMemberId;}):null;
-  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,taxAmt:taxOn?parseFloat((taxSub*CFG.tax/100).toFixed(2)):0,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||'',memberId:saleMemberId,memberName:saleMember?(saleMember.first+' '+saleMember.last):null});
+  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:method,total:tot,taxAmt:taxOn?parseFloat((taxableSub*CFG.tax/100).toFixed(2)):0,cats:cats,ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||'',memberId:saleMemberId,memberName:saleMember?(saleMember.first+' '+saleMember.last):null});
   // Auto-book walk-ins for green fee sales not linked to a tee time
   var walkInItems=cart.filter(function(x){return !x.teeKey&&x._cfHoles;});
   walkInItems.forEach(function(x){_autoBookWalkIn(x._cfHoles);});
@@ -4174,153 +4175,333 @@ _checkDB().then(function(ok){ _showDBStatus(ok); });
 
 
 // ============================================================
-// CARDPOINTE GATEWAY
+// CARDPOINTE — integrated terminal + gateway (through OUR server)
+// The browser never sees card numbers or CardPointe credentials.
+// Every call goes to /api/cp/* on the POS server (cardpointe.js),
+// which talks to CardPointe's Terminal API and Gateway API.
 // ============================================================
-var CP_CONFIG={site:'',merchid:'',apiKey:'',mode:'demo'};
+var CP_CONFIG={site:'',merchid:'',mode:'unknown'}; // masked copy of the server config
 var cpPendingAmount=0,cpLastRetref=null,cpApproved=false,cpApprovedData=null;
+var _cpFlow=null,_cpBusy=false,_cpDeclineOpts=null,_cpLastSaleIdx=null,_cpInCardFinalize=false,_cpActList=[];
+var CP_WS_KEY='greenhills_cp_workstation';
 
-function cpBase(){
-  if(CP_CONFIG.mode==='demo'||!CP_CONFIG.site)return '';
-  return 'https://'+CP_CONFIG.site+(CP_CONFIG.mode==='live'?'':'-uat')+'.cardconnect.com/cardconnect/rest/';
+function _r2(n){return Math.round((parseFloat(n)||0)*100)/100;}
+function _cpEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function cpWorkstation(){try{return JSON.parse(localStorage.getItem(CP_WS_KEY)||'{}')||{};}catch(e){return{};}}
+function cpSaveWorkstationData(ws){try{localStorage.setItem(CP_WS_KEY,JSON.stringify(ws));}catch(e){}}
+
+// One place for every call to the payment server
+async function cpApi(path,method,body){
+  var ws=cpWorkstation();
+  var headers={'Content-Type':'application/json'};
+  if(ws.posKey)headers['X-POS-Key']=ws.posKey;
+  var r;
+  try{
+    r=await fetch('/api/cp'+path,{method:method||'GET',headers:headers,body:body?JSON.stringify(body):undefined});
+  }catch(e){return{ok:false,status:'offline',message:'Cannot reach the POS server ('+e.message+').'};}
+  var ct=r.headers.get('content-type')||'';
+  if(r.status===404||ct.indexOf('application/json')<0){
+    return{ok:false,status:'missing',message:'The CardPointe module (cardpointe.js) is not installed on the POS server yet.'};
+  }
+  var j=null;try{j=await r.json();}catch(e){}
+  if(!j)j={ok:false,status:'error',message:'Server returned HTTP '+r.status};
+  if(r.status===401&&!j.message)j.message='Workstation key is missing or wrong (Settings → CardPointe).';
+  return j;
 }
-function openCardPointe(){
-  if(!cart.length){sMsg('sale-msg','Add items first','red');return;}
-  var taxOn=$$('tax-toggle').checked;
-  var sub=cart.reduce(function(a,x){return a+x.price*x.qty;},0);
-  var txSub=taxOn&&typeof isTaxable==='function'?cart.filter(isTaxable).reduce(function(a,x){return a+x.price*x.qty;},0):0;
-  cpPendingAmount=parseFloat((sub+(taxOn?txSub*CFG.tax/100:0)).toFixed(2));
-  cpLastRetref=null;cpApproved=false;cpApprovedData=null;
-  $$('cp-amount-display').textContent=C(cpPendingAmount);
-  ['cp-card-num','cp-expiry','cp-cvv','cp-zip','cp-name'].forEach(function(id){$$(id).value='';});
-  $$('cp-msg').innerHTML='';
-  $$('cp-step-entry').style.display='';
-  $$('cp-step-processing').style.display='none';
-  $$('cp-step-result').style.display='none';
-  openOv('ov-cardpointe');
-}
-function openDemoCard(){openCardPointe();setTimeout(simulateSwipe,200);}
-function fmtCard(el){
-  var v=el.value.replace(/\D/g,'').substring(0,16);
-  var g=[];for(var i=0;i<v.length;i+=4)g.push(v.substring(i,i+4));
-  el.value=g.join(' ');
-}
-function simulateSwipe(){
-  $$('cp-card-num').value='4111 1111 1111 1111';$$('cp-expiry').value='1228';
-  $$('cp-cvv').value='123';$$('cp-name').value='Test Golfer';
-  sMsg('cp-msg','Test card loaded','blue');
-}
-function submitCardPayment(){
-  var rawNum=($$('cp-card-num').value||'').replace(/\s/g,'');
-  var expiry=($$('cp-expiry').value||'').trim();
-  var cvv=($$('cp-cvv').value||'').trim();
-  var name=($$('cp-name').value||'').trim();
-  var postal=($$('cp-zip').value||'').trim();
-  if(rawNum.length<13){sMsg('cp-msg','Enter a valid card number','red');return;}
-  if(expiry.length!==4){sMsg('cp-msg','Enter expiry as MMYY e.g. 1228','red');return;}
-  $$('cp-step-entry').style.display='none';
-  $$('cp-step-processing').style.display='';
-  $$('cp-step-result').style.display='none';
-  $$('cp-processing-msg').textContent='Connecting to CardPointe...';
-  var amt=cpPendingAmount.toFixed(2);
-  if(CP_CONFIG.mode==='demo'||!CP_CONFIG.site||!CP_CONFIG.apiKey){_demoCharge(amt,rawNum,name);return;}
-  var body={merchid:CP_CONFIG.merchid,account:rawNum,expiry:expiry,amount:amt,currency:'USD',capture:'Y'};
-  if(name)body.name=name;if(postal)body.postal=postal;if(cvv)body.cvv2=cvv;
-  fetch(cpBase()+'auth',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Basic '+CP_CONFIG.apiKey},body:JSON.stringify(body)})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      cpLastRetref=d.retref||null;
-      if(d.respstat==='A')_showApproved(d,amt);
-      else if(d.respstat==='B')_showDecline('Timeout/Retry: '+(d.resptext||'Please retry'));
-      else _showDecline((d.resptext||'Declined')+' (code: '+d.respcode+')');
-    })
-    .catch(function(e){_showDecline('Network error: '+e.message);});
-}
-function _demoCharge(amt,cardNum,name){
-  $$('cp-processing-msg').textContent='Authorizing...';
-  setTimeout(function(){
-    $$('cp-processing-msg').textContent='Capturing...';
-    setTimeout(function(){
-      var last4=cardNum.slice(-4);
-      var retref=(Math.floor(Math.random()*900000000000)+100000000000).toString();
-      _showApproved({retref:retref,token:'9418594164541'+last4,amount:amt,resptext:'Approval',respcode:'00',authcode:'PPS'+Math.floor(Math.random()*999999),account:'****'+last4,name:name||'CARDHOLDER',respstat:'A',setlstat:'Queued for Capture'},amt);
-    },600);
-  },1400);
-}
-function _showApproved(data,amt){
-  cpApproved=true;cpApprovedData=data;cpLastRetref=data.retref;
-  $$('cp-step-processing').style.display='none';
-  $$('cp-step-result').style.display='';
-  $$('cp-complete-print').style.display='';
-  $$('cp-complete-no-receipt').textContent='No Receipt';
-  $$('cp-result-box').innerHTML='<div style="font-size:36px;margin-bottom:8px">&#x2705;</div>'
-    +'<div style="font-size:20px;font-weight:700;color:#27500A;margin-bottom:4px">Approved!</div>'
-    +'<div style="font-size:13px;color:#444;margin-bottom:10px"><strong>'+C(parseFloat(amt))+'</strong> charged to '+(data.account||'card')+'</div>'
-    +'<div style="background:#EAF3DE;border-radius:8px;padding:9px;font-size:12px;text-align:left">'
-    +'Auth code: <strong>'+(data.authcode||'N/A')+'</strong><br>'
-    +'Ref #: '+(data.retref||'N/A')+'<br>'
-    +'Status: '+(data.setlstat||'Approved')+'</div>';
-}
-function _showDecline(reason){
-  $$('cp-step-processing').style.display='none';
-  $$('cp-step-result').style.display='';
-  $$('cp-complete-print').style.display='none';
-  $$('cp-complete-no-receipt').textContent='Close';
-  $$('cp-result-box').innerHTML='<div style="font-size:36px;margin-bottom:8px">&#x274C;</div>'
-    +'<div style="font-size:18px;font-weight:700;color:#791F1F;margin-bottom:8px">Declined</div>'
-    +'<div style="font-size:13px;color:#444;background:#FCEBEB;border-radius:8px;padding:9px">'+reason+'</div>';
-}
-function finishCardPayment(){if(cpApproved)_completeCardSale(false);closeOv('ov-cardpointe');}
-function finishCardPaymentAndPrint(){if(cpApproved)_completeCardSale(true);closeOv('ov-cardpointe');}
-function _completeCardSale(printAfter){
-  var taxOn=$$('tax-toggle').checked;
-  var sub=cart.reduce(function(a,x){return a+x.price*x.qty;},0);
-  var txSub2=taxOn&&typeof isTaxable==='function'?cart.filter(isTaxable).reduce(function(a,x){return a+x.price*x.qty;},0):0;
-  var tot=parseFloat((sub+(taxOn?txSub2*CFG.tax/100:0)).toFixed(2));
-  var tax=tot-sub;
-  cart.forEach(function(x){if(x.productId){var p=products.find(function(pp){return pp.id===x.productId;});if(p&&p.stock<999)p.stock=Math.max(0,p.stock-x.qty);}});
-  // Issue any pending gift certificates
-  cart.filter(function(x){return x._gcPending;}).forEach(function(x){_issueGCFromCart(x);});
-  cart.filter(function(x){return x.teeKey;}).forEach(function(x){
-    var b=bookings[x.teeKey];if(!b)return;
-    if(!b.paidNames)b.paidNames=[];
-    var m=x.name.match(/\u2014\s*(.+)$/);
-    if(!m)m=x.name.match(/--\s*(.+)$/);
-    if(!m)m=x.name.match(/\s-\s(.+)$/);
-    var gn=m?m[1].trim():null;
-    if(gn&&b.paidNames.indexOf(gn)<0)b.paidNames.push(gn);
-    b.paid=allPaid(b);
-  });
-  cart.filter(function(x){return x.memberId;}).forEach(function(x){
-    var mm=members.find(function(m){return m.id===x.memberId;});
-    if(mm){mm.paid=true;mm.unpaidAddons=[];mm.exp=CFG.memExpiry||mm.exp;}
-  });
-  var items=cart.map(function(x){return x.name+(x.qty>1?' x'+x.qty:'');}).join(', ');
-  var cats={};cart.forEach(function(x){cats[x.cat]=(cats[x.cat]||0)+x.price*x.qty;});
-  var saleMemberId=posMemberId||(function(){var mi=cart.find(function(x){return x.memberId;});return mi?mi.memberId:null;})();
-  var saleMember=saleMemberId?members.find(function(m){return m.id===saleMemberId;}):null;
-  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:items,method:'card (CardPointe)',total:tot,cats:cats,ts:Date.now(),retref:cpLastRetref||'',memberId:saleMemberId,memberName:saleMember?(saleMember.first+' '+saleMember.last):null});
-  updateStats();renderSalesLog();
-  if(posMemberId)renderPosMemberBox(posMemberId);
-  var snap=cart.slice();
-  clearCart();
-  if($$('tab-tee').classList.contains('on'))renderTee();
-  updateDrawer();
-  sMsg('sale-msg','Card approved! Ref: '+(cpLastRetref||'demo'),'green');
-  saveState();
-  if(printAfter){
-    _lastReceiptLines=_buildReceiptLines(snap,sub,tax,tot);
-    $$('receipt-content').textContent=_lastReceiptLines.join('\n');
-    openOv('ov-receipt');
+
+// ------------------------------------------------------------
+// SETTINGS
+// ------------------------------------------------------------
+function _cpVal(id){var el=$$(id);return el?el.value.trim():'';}
+async function cpLoadSettings(){
+  var ws=cpWorkstation();
+  if($$('cp-ws-register'))$$('cp-ws-register').value=ws.register||'';
+  if($$('cp-ws-hsn'))$$('cp-ws-hsn').value=ws.hsn||'';
+  if($$('cp-ws-key'))$$('cp-ws-key').value=ws.posKey||'';
+  var st=$$('cp-status');
+  var r=await cpApi('/config');
+  if(!r.ok){
+    CP_CONFIG={site:'',merchid:'',mode:'unknown'};
+    if(st){st.style.background='#FAEEDA';st.style.color='#633806';st.innerHTML='⚠ '+_cpEsc(r.message);}
+    return;
+  }
+  var c=r.config||{};
+  CP_CONFIG={site:c.site||'',terminalSite:c.terminalSite||'',merchid:c.merchid||'',mode:c.mode||'demo',ready:c.ready||{}};
+  if($$('cp-site'))$$('cp-site').value=c.site||'';
+  if($$('cp-term-site'))$$('cp-term-site').value=c.terminalSite||'';
+  if($$('cp-merchid'))$$('cp-merchid').value=c.merchid||'';
+  if($$('cp-mode'))$$('cp-mode').value=c.mode||'demo';
+  var ph=function(isSet,hint){return isSet?('saved'+(hint?' (…'+hint+')':'')+' — leave blank to keep'):'not set';};
+  if($$('cp-user'))$$('cp-user').placeholder=ph(c.gatewayUserSet,'');
+  if($$('cp-pass'))$$('cp-pass').placeholder=ph(c.gatewayPassSet,'');
+  if($$('cp-term-key'))$$('cp-term-key').placeholder=ph(c.terminalKeySet,c.terminalKeyHint);
+  var lockMap={site:'cp-site',terminalSite:'cp-term-site',merchid:'cp-merchid',gatewayUser:'cp-user',gatewayPass:'cp-pass',terminalKey:'cp-term-key',mode:'cp-mode'};
+  Object.keys(lockMap).forEach(function(k){var el=$$(lockMap[k]);if(!el)return;var locked=(c.envLocked||[]).indexOf(k)>=0;el.disabled=locked;el.title=locked?'Set by a Railway environment variable — change it there':'';});
+  if(st){
+    var modeLbl={demo:'DEMO (simulated — no real charges)',test:'UAT / Sandbox (test cards only)',live:'LIVE (real charges)'}[c.mode]||c.mode;
+    var bg={demo:'#FAEEDA',test:'#E6F1FB',live:'#EAF3DE'}[c.mode]||'#f0f0e8';
+    var fg={demo:'#633806',test:'#0C447C',live:'#27500A'}[c.mode]||'#444';
+    st.style.background=bg;st.style.color=fg;
+    var ok=function(b){return b?'✓':'✗';};
+    st.innerHTML='<strong>Mode: '+_cpEsc(modeLbl)+'</strong><br>'
+      +'Gateway (refunds/voids): '+ok(c.ready&&c.ready.gateway)+' &nbsp;·&nbsp; Terminal API: '+ok(c.ready&&c.ready.terminal)
+      +' &nbsp;·&nbsp; This register: '+(ws.hsn?_cpEsc((ws.register||'Unnamed')+' → '+ws.hsn):'<strong>no terminal assigned</strong>')
+      +(c.keyRequired?'':'<br>⚠ POS_API_KEY is not set on the server, so the payment endpoints are unprotected. Set it in Railway → Variables.');
   }
 }
-function voidCardTx(retref){
-  if(!retref){alert('No reference to void.');return;}
-  if(!confirm('Void transaction '+retref+'?'))return;
-  if(CP_CONFIG.mode==='demo'||!CP_CONFIG.site){alert('Demo: voided '+retref+' (simulated).');return;}
-  fetch(cpBase()+'void',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Basic '+CP_CONFIG.apiKey},body:JSON.stringify({merchid:CP_CONFIG.merchid,retref:retref})})
-    .then(function(r){return r.json();})
-    .then(function(d){alert(d.respstat==='A'?'Void approved: '+d.retref:'Void declined: '+(d.resptext||'?'));})
-    .catch(function(e){alert('Void error: '+e.message);});
+async function saveCardPointeSettings(){
+  var body={site:_cpVal('cp-site'),terminalSite:_cpVal('cp-term-site'),merchid:_cpVal('cp-merchid'),mode:($$('cp-mode')||{value:'demo'}).value};
+  if(_cpVal('cp-user'))body.gatewayUser=_cpVal('cp-user');
+  if(_cpVal('cp-pass'))body.gatewayPass=_cpVal('cp-pass');
+  if(_cpVal('cp-term-key'))body.terminalKey=_cpVal('cp-term-key');
+  if(body.mode==='live'&&CP_CONFIG.mode!=='live'&&!confirm('Switch to LIVE mode?\n\nReal cards will be charged from now on.'))return;
+  var r=await cpApi('/config','POST',body);
+  if(!r.ok){sMsg('cp-settings-msg',r.message||'Save failed','red');return;}
+  ['cp-user','cp-pass','cp-term-key'].forEach(function(id){if($$(id))$$(id).value='';});
+  sMsg('cp-settings-msg','CardPointe settings saved on the server.','green');
+  cpLoadSettings();
+}
+function cpSaveRegister(){
+  var ws={register:_cpVal('cp-ws-register'),hsn:_cpVal('cp-ws-hsn'),posKey:($$('cp-ws-key')||{value:''}).value.trim()};
+  cpSaveWorkstationData(ws);
+  sMsg('cp-settings-msg','Saved for this computer: '+(ws.register||'Unnamed register')+(ws.hsn?' → terminal '+ws.hsn:' (no terminal yet)'),'green');
+  cpLoadSettings();
+}
+async function cpFindTerminals(){
+  sMsg('cp-settings-msg','Asking CardPointe for this merchant\'s terminals…','blue');
+  var r=await cpApi('/terminals');
+  if(!r.ok){sMsg('cp-settings-msg',r.message||'Could not list terminals','red');return;}
+  var list=r.terminals||[];
+  var dl=$$('cp-hsn-list');if(dl)dl.innerHTML=list.map(function(h){return'<option value="'+_cpEsc(h)+'">';}).join('');
+  sMsg('cp-settings-msg',list.length?('Found '+list.length+' terminal(s): '+list.map(_cpEsc).join(', ')+'. Pick one in the Terminal HSN box, then Save this register.'):'No terminals are boarded to this merchant ID yet.',list.length?'green':'amber');
+}
+async function cpTestTerminal(){
+  var hsn=_cpVal('cp-ws-hsn')||cpWorkstation().hsn;
+  if(!hsn&&CP_CONFIG.mode!=='demo'){sMsg('cp-settings-msg','Enter the terminal HSN first.','red');return;}
+  sMsg('cp-settings-msg','Connecting to terminal '+_cpEsc(hsn||'(demo)')+'…','blue');
+  var r=await cpApi('/terminal/test','POST',{hsn:hsn});
+  sMsg('cp-settings-msg',r.ok?('✓ '+(r.message||'Terminal connected')):('✗ '+(r.message||'Test failed')),r.ok?'green':'red');
+}
+function cpTestCharge(){
+  _cpOpen({amount:1.00,allowTip:false,label:'Test charge ($1.00)',onApproved:function(res){
+    setTimeout(function(){
+      if(confirm('Test charge APPROVED.\nRef '+(res.retref||'-')+' · '+res.account+'\n\nVoid it now so the card is not charged?')){
+        cpReverseRaw(_cpTxnMeta(res),1.00).then(function(r){alert(r.ok&&r.status==='approved'?'Test charge voided.':'Void failed: '+(r.message||r.resptext||'unknown')+'\nRef '+res.retref);});
+      }
+    },400);
+  }});
+}
+
+// ------------------------------------------------------------
+// PAYMENT MODAL
+// ------------------------------------------------------------
+function _cpCartTotal(){return _splitGetTot();}
+function openCardPointe(opts){return _cpOpen(opts);}
+function _cpOpen(opts){
+  opts=opts||{};
+  if(opts.amount==null){
+    if(!cart.length){sMsg('sale-msg','Add items first','red');return;}
+    if(splits.length){completeSale();return;} // split payments charge their card lines from completeSale
+    var base=_cpCartTotal();
+    if(_posPayMethod==='credit'){var ca=parseFloat(($$('card-amount')||{}).value)||0;if(ca>base)base=ca;} // cash back
+    opts.amount=base;
+  }
+  if(!(opts.amount>0)){sMsg('sale-msg','Nothing to charge — the total is $0.00','red');return;}
+  _cpFlow={base:_r2(opts.amount),tip:0,allowTip:opts.allowTip!==false,onApproved:opts.onApproved||_cpFinalizeCartSale,label:opts.label||'Card Payment'};
+  cpPendingAmount=_cpFlow.base;cpLastRetref=null;cpApproved=false;cpApprovedData=null;_cpBusy=false;
+  $$('cp-title').textContent=_cpFlow.label;
+  $$('cp-tip-row').style.display=_cpFlow.allowTip?'':'none';
+  if($$('tip-custom'))$$('tip-custom').value='';
+  _updateTipDisplay();
+  var ws=cpWorkstation();
+  var modeTxt={demo:'DEMO — simulated',test:'UAT / sandbox',live:'LIVE'}[CP_CONFIG.mode]||'mode not loaded';
+  $$('cp-register-line').innerHTML='📟 '+(ws.hsn?('<strong>'+_cpEsc(ws.register||'This register')+'</strong> · terminal '+_cpEsc(ws.hsn)):'<span style="color:#A32D2D">No terminal assigned to this register (Settings → CardPointe)</span>')+' · <span style="color:#888">'+modeTxt+'</span>';
+  $$('cp-msg').innerHTML='';
+  _cpStep('entry');
+  openOv('ov-cardpointe');
+}
+function _cpStep(s){
+  ['entry','processing','result'].forEach(function(x){$$('cp-step-'+x).style.display=x===s?'':'none';});
+  var x=$$('cp-close-x');if(x)x.style.visibility=(s==='processing')?'hidden':'visible';
+}
+function setTip(pct){if(!_cpFlow)return;_cpFlow.tip=_r2(_cpFlow.base*pct);if($$('tip-custom'))$$('tip-custom').value='';_updateTipDisplay();}
+function setCustomTip(v){if(!_cpFlow)return;_cpFlow.tip=Math.max(0,_r2(v));_updateTipDisplay();}
+function _updateTipDisplay(){
+  if(!_cpFlow)return;
+  var tot=_r2(_cpFlow.base+_cpFlow.tip);
+  $$('tip-display').textContent=C(_cpFlow.tip);
+  $$('tip-total-display').textContent=C(tot);
+  $$('cp-amount-display').textContent=C(tot);
+  $$('cp-amount-sub').textContent=_cpFlow.tip>0?('Includes '+C(_cpFlow.tip)+' tip'):'Amount to charge';
+}
+function cpCloseModal(){
+  if(_cpBusy){alert('The terminal is still working. Wait for it to finish, or press "Cancel on terminal".');return;}
+  closeOv('ov-cardpointe');_cpFlow=null;
+}
+function _cpActions(list){
+  _cpActList=list;
+  $$('cp-result-actions').innerHTML=list.map(function(a,i){
+    return'<button class="btn '+(a.cls||'')+'" style="'+(a.grow?'flex:1;':'')+'padding:9px 12px" onclick="_cpAct('+i+')">'+a.label+'</button>';
+  }).join('');
+}
+function _cpAct(i){var a=_cpActList[i];if(a)a.fn();}
+
+async function cpStartCharge(){
+  if(!_cpFlow||_cpBusy)return;
+  var ws=cpWorkstation();
+  var total=_r2(_cpFlow.base+_cpFlow.tip);
+  if((CP_CONFIG.mode==='test'||CP_CONFIG.mode==='live')&&!ws.hsn){sMsg('cp-msg','Assign this register a terminal first (Settings → CardPointe → Terminal HSN).','red');return;}
+  _cpBusy=true;_cpStep('processing');
+  $$('cp-processing-msg').textContent=C(total)+' sent to the terminal';
+  $$('cp-processing-sub').textContent='Customer: tap, insert or swipe the card. Waiting for the result…';
+  var r=await cpApi('/terminal/charge','POST',{hsn:ws.hsn||'',register:ws.register||'',amount:total.toFixed(2),cashier:currentUser?currentUser.name:'',label:_cpFlow.label});
+  _cpBusy=false;
+  if(r.status==='approved'){_showApproved(r,total);return;}
+  _cpDeclineOpts={status:r.status,orderid:r.orderid};
+  var msg=r.message||r.resptext||'Not approved';
+  if(r.status==='declined')msg='Declined: '+(r.resptext||msg)+(r.respcode?' (code '+r.respcode+')':'');
+  _showDecline(_cpEsc(msg));
+}
+async function cpCancelTerminal(){
+  var ws=cpWorkstation();
+  $$('cp-processing-sub').textContent='Cancelling on the terminal…';
+  var r=await cpApi('/terminal/cancel','POST',{hsn:ws.hsn||''});
+  if(!r.ok)$$('cp-processing-sub').textContent='Cancel request failed ('+(r.message||'unknown')+'). Press the red X on the terminal itself.';
+}
+
+function _showApproved(r,total){
+  var res={retref:r.retref||'',authcode:r.authcode||'',account:r.account||'card',amountCharged:_r2(r.amount!=null?r.amount:total),orderid:r.orderid||'',mode:r.mode||CP_CONFIG.mode,standalone:!!r.standalone};
+  cpApproved=true;cpApprovedData=res;cpLastRetref=res.retref;
+  _cpStep('result');
+  var demoBadge=(res.mode==='demo'||res.mode==='demo-local')?' <span class="badge b-amber">DEMO</span>':'';
+  $$('cp-result-box').innerHTML='<div style="font-size:36px;margin-bottom:8px">&#x2705;</div>'
+    +'<div style="font-size:20px;font-weight:700;color:#27500A;margin-bottom:4px">Approved'+demoBadge+'</div>'
+    +'<div style="font-size:13px;color:#444;margin-bottom:10px"><strong>'+C(res.amountCharged)+'</strong> charged to '+_cpEsc(res.account)+'</div>'
+    +'<div style="background:#EAF3DE;border-radius:8px;padding:9px;font-size:12px;text-align:left">'
+    +'Auth code: <strong>'+_cpEsc(res.authcode||'N/A')+'</strong><br>Ref #: '+_cpEsc(res.retref||'N/A')+'</div>';
+  var flow=_cpFlow;var finalizeOk=true;
+  try{flow.onApproved(res);}catch(e){console.error(e);finalizeOk=false;}
+  if(!finalizeOk){
+    $$('cp-result-box').innerHTML+='<div class="msg m-red">The card was approved but recording the sale hit an error. Ref '+_cpEsc(res.retref)+' — check the sales log.</div>';
+  }
+  var acts=[];
+  if(flow.onApproved===_cpFinalizeCartSale&&_cpLastSaleIdx!=null)acts.push({label:'🖨 Print receipt',cls:'bg-blue',fn:function(){reprintReceipt(_cpLastSaleIdx);}});
+  acts.push({label:'Done',cls:'bg-green',grow:true,fn:cpCloseModal});
+  _cpActions(acts);
+}
+function _showDecline(reason){
+  _cpStep('result');
+  var o=_cpDeclineOpts||{};_cpDeclineOpts=null;
+  var titles={declined:'Declined',retry:'Please try again',cancelled:'Cancelled',busy:'Terminal busy',unknown:'Result unknown',missing:'Payment server not set up',offline:'Server unreachable',error:'Could not process'};
+  var title=titles[o.status]||'Not approved';
+  var warn=o.status==='unknown'
+    ?'<div class="msg m-amber" style="text-align:left"><strong>Do not re-run the card yet.</strong> Look up order <strong>'+_cpEsc(o.orderid||'?')+'</strong> in the CardPointe portal first, so the customer isn\'t charged twice.</div>':'';
+  $$('cp-result-box').innerHTML='<div style="font-size:36px;margin-bottom:8px">'+(o.status==='cancelled'?'&#x26D4;':o.status==='unknown'?'&#x26A0;&#xFE0F;':'&#x274C;')+'</div>'
+    +'<div style="font-size:18px;font-weight:700;color:#791F1F;margin-bottom:8px">'+title+'</div>'
+    +'<div style="font-size:13px;color:#444;background:#FCEBEB;border-radius:8px;padding:9px">'+reason+'</div>'+warn;
+  var acts=[{label:'↻ Try again',cls:'bg-blue',grow:true,fn:function(){_cpStep('entry');}}];
+  if(o.status==='missing')acts.push({label:'Simulate approval (demo)',cls:'bg-amber',fn:cpSimulateDemo});
+  acts.push({label:'Paid on standalone terminal',fn:cpRecordStandalone});
+  acts.push({label:'Close',fn:cpCloseModal});
+  _cpActions(acts);
+}
+function cpRecordStandalone(){
+  if(!_cpFlow)return;
+  var total=_r2(_cpFlow.base+_cpFlow.tip);
+  if(!confirm('Only use this if the card was run on a separate, standalone terminal and it said APPROVED for '+C(total)+'.\n\nRecord this as paid?'))return;
+  var auth=prompt('Auth code from the terminal slip (optional):','')||'';
+  _showApproved({retref:'',authcode:auth,account:'standalone terminal',amount:total,standalone:true,mode:'standalone'},total);
+}
+function cpSimulateDemo(){
+  if(!_cpFlow)return;
+  var total=_r2(_cpFlow.base+_cpFlow.tip);
+  _showApproved({retref:'DEMO'+Date.now(),authcode:'DEMO00',account:'****1111',amount:total,mode:'demo-local'},total);
+}
+
+// ------------------------------------------------------------
+// RECORDING SALES / REFUNDS
+// ------------------------------------------------------------
+function _cpTxnMeta(res){
+  return{retref:res.retref||'',authcode:res.authcode||'',account:res.account||'card',amount:_r2(res.amountCharged),orderid:res.orderid||'',mode:res.mode||'',standalone:!!res.standalone,reversed:0,ts:Date.now(),register:cpWorkstation().register||''};
+}
+function _cpFinalizeCartSale(res){
+  var tip=_cpFlow?_cpFlow.tip:0;
+  if(tip>0)cart.push({cid:++cartId,productId:null,name:'Tip',price:tip,qty:1,cat:'Tip',teeKey:null,memberId:null});
+  setPosPayMethod('credit');
+  var ca=$$('card-amount');if(ca)ca.value=res.amountCharged.toFixed(2);
+  var chk=$$('print-receipt-chk'),wasChk=chk?chk.checked:false;if(chk)chk.checked=false;
+  var before=sales.length;
+  _cpInCardFinalize=true;
+  try{completeSale();}finally{_cpInCardFinalize=false;if(chk)chk.checked=wasChk;}
+  if(sales.length>before){
+    var s=sales[sales.length-1];
+    s.method=res.standalone?'card (standalone terminal)':'card (CardPointe)';
+    s.retref=res.retref||'';s.tip=tip;s.cardTxns=[_cpTxnMeta(res)];
+    _cpLastSaleIdx=sales.length-1;
+    updateStats();renderSalesLog();saveState();
+    setPosPayMethod('cash');
+    if(wasChk)setTimeout(function(){reprintReceipt(_cpLastSaleIdx);},300);
+  }else{
+    _cpLastSaleIdx=null;
+    _cpSaleNotRecorded([_cpTxnMeta(res)]);
+  }
+}
+function _cpSaleNotRecorded(txns){
+  txns.forEach(function(t){
+    if(!t||t.standalone)return;
+    if(confirm('⚠ The card was charged '+C(t.amount)+' ('+t.account+', Ref '+t.retref+') but the sale could NOT be recorded.\n\nVoid the card charge now? (Recommended)')){
+      cpReverseRaw(t,t.amount).then(function(r){
+        alert(r.ok&&r.status==='approved'?'Card charge voided.':'Void failed: '+(r.message||r.resptext||'unknown')+'\nRef '+t.retref+' — void it in the CardPointe portal.');
+      });
+    }else{
+      alert('Write down Ref '+t.retref+' — the card WAS charged '+C(t.amount)+'.');
+    }
+  });
+}
+// Send a void/refund for one card transaction (server picks void vs refund)
+async function cpReverseRaw(t,amount){
+  if(t.standalone)return{ok:true,status:'approved',kind:'manual',message:'Recorded in the POS only — refund it on the standalone terminal too.'};
+  if(String(t.mode||'')==='demo-local')return{ok:true,status:'approved',kind:'void',message:'(local demo)'};
+  return cpApi('/reverse','POST',{retref:t.retref,amount:_r2(amount).toFixed(2),fullAmount:_r2(t.amount).toFixed(2),cashier:currentUser?currentUser.name:''});
+}
+function _cpSaleTxns(s){
+  if(!s)return[];
+  if(s.cardTxns&&s.cardTxns.length)return s.cardTxns;
+  if(s.retref&&s.total>0&&/cardpointe/i.test(s.method||'')){s.cardTxns=[{retref:s.retref,authcode:'',account:'card',amount:s.total,reversed:0,mode:'legacy'}];return s.cardTxns;}
+  return[];
+}
+function _cpCanRefund(){
+  return !currentUser||currentUser.role==='admin'||currentUser.role==='manager'||canDo('Void transactions');
+}
+// Core: reverse `amt` of txn `t` belonging to sales[si], record the negative sale
+async function cpReverseTxnForSale(si,t,amt,label){
+  var s=sales[si];
+  var r=await cpReverseRaw(t,amt);
+  if(!(r.ok&&r.status==='approved'))return{ok:false,message:r.message||r.resptext||'Unknown error'};
+  t.reversed=_r2((t.reversed||0)+amt);
+  var kind=r.kind==='void'?'VOID':'REFUND';
+  sales.push({time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),items:'CARD '+kind+': '+(label||s.items),method:'card '+(r.kind||'refund')+(t.standalone?' (standalone)':' (CardPointe)'),total:-amt,cats:{Refund:-amt},ts:Date.now(),cashier:currentUser?currentUser.name:'Unknown',sessionId:_currentSessionId||'',retref:r.retref||'',parentRetref:t.retref});
+  updateStats();renderSalesLog();updateDrawer();saveState();
+  return{ok:true,kind:kind,message:r.message||''};
+}
+// Sales-log ↩ button
+async function cpReverseSale(idx){
+  var s=sales[idx];if(!s)return;
+  if(!_cpCanRefund()){alert('You need the "Void transactions" permission to refund card payments.');return;}
+  var txns=_cpSaleTxns(s).filter(function(t){return _r2(t.amount-(t.reversed||0))>0;});
+  if(!txns.length){alert('Nothing left to refund on this sale.');return;}
+  var t=txns[0];
+  if(txns.length>1){
+    var pick=prompt('This sale has '+txns.length+' card payments:\n'+txns.map(function(x,i){return(i+1)+') '+x.account+' — '+C(x.amount-(x.reversed||0))+' left';}).join('\n')+'\n\nWhich one? (number)','1');
+    var n=parseInt(pick);if(!n||!txns[n-1])return;t=txns[n-1];
+  }
+  var left=_r2(t.amount-(t.reversed||0));
+  var amt=_r2(prompt('Amount to return to '+t.account+' (max '+C(left)+'):',left.toFixed(2)));
+  if(!(amt>0))return;
+  if(amt>left+0.001){alert('The most you can return on this card is '+C(left)+'.');return;}
+  if(!confirm('Return '+C(amt)+' to '+t.account+'?'))return;
+  var r=await cpReverseTxnForSale(idx,t,amt);
+  alert(r.ok?((r.kind==='VOID'?'Voided ':'Refunded ')+C(amt)+' to '+t.account+(r.message?'\n'+r.message:'')):('Card refund failed: '+r.message));
 }
 
 // ============================================================
@@ -4407,18 +4588,7 @@ renderInv=function(){
   });
 };
 
-// ============================================================
-// CARDPOINTE SETTINGS
-// ============================================================
-function saveCardPointeSettings(){
-  CP_CONFIG.site=($$('cp-site')||{value:''}).value.trim();
-  CP_CONFIG.merchid=($$('cp-merchid')||{value:''}).value.trim();
-  var u=($$('cp-user')||{value:''}).value.trim(),p=($$('cp-pass')||{value:''}).value.trim();
-  if(u&&p)CP_CONFIG.apiKey=btoa(u+':'+p);
-  CP_CONFIG.mode=($$('cp-mode')||{value:'demo'}).value;
-  saveState();
-  alert('CardPointe settings saved. Mode: '+CP_CONFIG.mode);
-}
+// (CardPointe settings now live in the CARDPOINTE section above and are saved on the server)
 
 // ============================================================
 // END OF DAY
@@ -4549,9 +4719,7 @@ initApp=function(){
     _baseInitApp();
     // Always populate settings fields from loaded CFG
     populateSettingsFields();
-    if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
-    if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
-    if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
+    cpLoadSettings();
     _checkDB().then(_showDBStatus);
     // Restore session AFTER state is loaded (users come from DB)
     if(!currentUser){
@@ -4652,7 +4820,7 @@ completeSale = function(){
 var _baseOpenCardPointe = openCardPointe;
 openCardPointe = function(){
   if(!_dayOpen){ sMsg('sale-msg','Open the day before processing payments','red'); return; }
-  _baseOpenCardPointe();
+  _baseOpenCardPointe.apply(this, arguments);
 };
 
 // ============================================================
@@ -4835,7 +5003,7 @@ saveState = function(){
     saveDayState();
   }catch(e){}
 };
-var _baseLoadState = loadState;
+var _baseLoadState = (typeof loadState==='function') ? loadState : loadStateLocal; // fix: loadState was never defined, which stopped the rest of this script from running
 loadState = function(){
   var r = _baseLoadState();
   try{
@@ -4854,73 +5022,7 @@ loadState = function(){
 
 
 
-// ================================================================
-// TIP / GRATUITY
-// ================================================================
-var _tipAmount = 0;
-function setTip(pct){
-  _tipAmount = parseFloat((cpPendingAmount * pct).toFixed(2));
-  ['15','18','20','25'].forEach(function(p){
-    var b = $$('tip-'+p);
-    if(b) b.style.background = (pct === parseFloat('0.'+p) || (pct===0.18&&p==='18')) ? '#EAF3DE' : '';
-  });
-  _updateTipDisplay();
-}
-function setCustomTip(val){
-  _tipAmount = Math.max(0, parseFloat(val)||0);
-  _updateTipDisplay();
-}
-function _updateTipDisplay(){
-  var td = $$('tip-display'), tt = $$('tip-total-display');
-  if(td) td.textContent = C(_tipAmount);
-  if(tt) tt.textContent = C(cpPendingAmount + _tipAmount);
-}
-// Reset tip when opening card modal
-var _baseOpenCP2 = openCardPointe;
-openCardPointe = function(){
-  _tipAmount = 0;
-  _baseOpenCP2();
-  setTimeout(function(){
-    _updateTipDisplay();
-    var ti = $$('tip-total-display');
-    if(ti) ti.textContent = C(cpPendingAmount);
-  }, 100);
-};
-// Inject tip into finishCardPayment
-var _baseFinishCard = finishCardPayment;
-finishCardPayment = function(){
-  if(cpApproved && _tipAmount > 0){
-    sales.push({
-      time: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
-      items: 'Tip',
-      method: 'card (CardPointe)',
-      total: _tipAmount,
-      cats: {'Tip': _tipAmount},
-      ts: Date.now(),
-      cashier: currentUser ? currentUser.name : 'Unknown',
-      sessionId: _currentSessionId||''
-    });
-    updateStats(); renderSalesLog(); saveState();
-  }
-  _baseFinishCard();
-};
-var _baseFinishCardPrint = finishCardPaymentAndPrint;
-finishCardPaymentAndPrint = function(){
-  if(cpApproved && _tipAmount > 0){
-    sales.push({
-      time: new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
-      items: 'Tip',
-      method: 'card (CardPointe)',
-      total: _tipAmount,
-      cats: {'Tip': _tipAmount},
-      ts: Date.now(),
-      cashier: currentUser ? currentUser.name : 'Unknown',
-      sessionId: _currentSessionId||''
-    });
-    updateStats(); renderSalesLog(); saveState();
-  }
-  _baseFinishCardPrint();
-};
+// (Tip handling moved into the CardPointe modal — tip is chosen BEFORE the card is run)
 
 // ================================================================
 // CARD DECLINE LOGGING
@@ -5094,6 +5196,7 @@ function loadTournScoring(){
   var roster = tournamentRosters[tid];
   var area = $$('tourn-scoring-area');
   var teamsize = t.teamsize||1;
+  var teamSize = teamsize; // fix: scoring code below used teamSize
 
   // Day/format info banner
   var dayBanner = '';
@@ -5663,9 +5766,7 @@ saveTournament = function(){
           else $$('nav-security').style.display='';
           _baseInitApp();
           populateSettingsFields();
-          if($$('cp-site'))$$('cp-site').value=CP_CONFIG.site||'';
-          if($$('cp-merchid'))$$('cp-merchid').value=CP_CONFIG.merchid||'';
-          if($$('cp-mode'))$$('cp-mode').value=CP_CONFIG.mode||'demo';
+          cpLoadSettings();
           _checkDB().then(_showDBStatus);
           var teeBtn=document.querySelector('.nav button:nth-child(2)');
           if(teeBtn)teeBtn.click();
@@ -6081,4 +6182,132 @@ function setPartialRefund(pct){
 }
 
 
+
+// ================================================================
+// CARDPOINTE — hook card payments into Complete Sale, splits,
+// the sales log and the Refund window
+// ================================================================
+var _baseCompleteSaleCP=completeSale;
+completeSale=function(){
+  if(_cpInCardFinalize)return _baseCompleteSaleCP();
+  if(!cart.length)return _baseCompleteSaleCP();
+  if(!_dayOpen){sMsg('sale-msg','Open the day before processing sales (click 🟢 Open Day)','red');return;}
+  if(splits.length){
+    var tot=_splitGetTot();
+    var paid=splits.reduce(function(a,s){return a+(s.amt||0);},0);
+    if(paid<tot-0.01){sMsg('sale-msg','Split total '+C(paid)+' is less than the order total '+C(tot),'red');return;}
+    // Check store-credit lines BEFORE any card is charged
+    for(var i=0;i<splits.length;i++){
+      var sp=splits[i];
+      if(sp.type==='credit'){
+        var mem=members.find(function(m){return(m.first+' '+m.last).toLowerCase()===(sp.memName||'').toLowerCase();});
+        if(!mem){sMsg('sale-msg','Store credit: member "'+(sp.memName||'')+'" not found','red');return;}
+        if(mem.credit<sp.amt-0.001){sMsg('sale-msg',mem.first+' only has '+C(mem.credit)+' store credit','red');return;}
+      }
+    }
+    var pending=-1;
+    for(var j=0;j<splits.length;j++){if(splits[j].type==='card'&&!splits[j].cpCharged&&splits[j].amt>0){pending=j;break;}}
+    if(pending>=0){
+      var idx=pending;
+      _cpOpen({amount:splits[idx].amt,allowTip:false,label:'Split — card payment '+C(splits[idx].amt),onApproved:function(res){
+        splits[idx].cpCharged=true;splits[idx].cpMeta=_cpTxnMeta(res);
+        setTimeout(function(){closeOv('ov-cardpointe');_cpFlow=null;completeSale();},1200);
+      }});
+      return;
+    }
+    var cardTx=splits.filter(function(s){return s.cpCharged;}).map(function(s){return s.cpMeta;});
+    var before=sales.length;
+    _baseCompleteSaleCP();
+    if(sales.length>before){
+      if(cardTx.length){var last=sales[sales.length-1];last.cardTxns=cardTx;last.retref=cardTx[0].retref;saveState();renderSalesLog();}
+    }else if(cardTx.length){
+      _cpSaleNotRecorded(cardTx);
+    }
+    return;
+  }
+  if(_posPayMethod==='credit'){_cpOpen();return;} // Card selected → run it on the terminal
+  _baseCompleteSaleCP();
+};
+
+// Sales log — adds a ↩ refund/void button on card sales
+renderSalesLog=function(){
+  var tb=$$('sales-log');if(!tb)return;
+  var filterEl=$$('sales-log-filter');
+  var f=filterEl?filterEl.value:'';
+  var list=sales.slice().reverse().filter(function(s){if(!f)return true;return s.method&&s.method.toLowerCase().indexOf(f)>=0;});
+  if(!list.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#888;padding:12px;font-size:12px">'+(f?'No '+f+' sales today':'No sales yet today')+'</td></tr>';return;}
+  var methodColor={'cash':'b-green','card':'b-blue','credit':'b-teal','gift':'b-amber','check':'b-amber'};
+  tb.innerHTML=list.map(function(s){
+    var mKey=Object.keys(methodColor).find(function(k){return s.method&&s.method.toLowerCase().indexOf(k)>=0;})||'';
+    var badge=mKey?'<span class="badge '+methodColor[mKey]+'" style="font-size:9px">'+mKey+'</span>':'<span class="badge b-gray" style="font-size:9px">'+(s.method||'—')+'</span>';
+    var sIdx=sales.indexOf(s);
+    var canRev=s.total>0&&_cpSaleTxns(s).some(function(t){return _r2(t.amount-(t.reversed||0))>0;});
+    return'<tr>'
+      +'<td style="font-size:11px;color:#888">'+s.time+'</td>'
+      +'<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="'+_cpEsc(s.items)+'">'+s.items+'</td>'
+      +'<td>'+badge+'</td>'
+      +'<td style="font-size:12px;font-weight:600;text-align:right">'+C(s.total)+'</td>'
+      +'<td style="white-space:nowrap"><button class="btn btn-sm" style="padding:2px 5px;font-size:10px" onclick="reprintReceipt('+sIdx+')" title="Reprint receipt">🖨</button>'
+      +(canRev?' <button class="btn btn-sm" style="padding:2px 5px;font-size:10px" onclick="cpReverseSale('+sIdx+')" title="Refund / void this card payment">↩</button>':'')
+      +'</td></tr>';
+  }).join('');
+};
+
+// Reprint — card sales show card, auth code and reference number
+reprintReceipt=function(idx){
+  var s=sales[idx];
+  if(!s){alert('Sale not found.');return;}
+  var m=s.method||'';
+  var tx=(s.cardTxns||[]).filter(function(t){return t.retref||t.authcode||t.standalone;});
+  if(tx.length)m+=' | '+tx.map(function(t){return t.account+(t.authcode?' Auth '+t.authcode:'')+(t.retref?' Ref '+t.retref:'');}).join(' | ');
+  printReceiptNow(s.items,m,s.total,s.taxAmt||0,0,'');
+};
+
+// Refund window — "Card" sends the money back to the original card
+var _baseUpdateRefundUICP=updateRefundUI;
+updateRefundUI=function(){
+  _baseUpdateRefundUICP();
+  if(($$('ref-method')||{}).value!=='card')return;
+  var opts=[];
+  sales.forEach(function(s,si){
+    if(!(s.total>0))return;
+    _cpSaleTxns(s).forEach(function(t,ti){
+      var left=_r2(t.amount-(t.reversed||0));
+      if(left>0)opts.push({v:si+'|'+ti,label:(s.ts?new Date(s.ts).toLocaleDateString()+' ':'')+s.time+' — '+t.account+' — '+C(left)+' left — '+String(s.items||'').substring(0,40)});
+    });
+  });
+  opts.reverse();
+  $$('ref-extra').innerHTML='<label>Original card sale</label>'
+    +'<select id="ref-card-txn" onchange="cpRefundPick()"><option value="">— Select the card sale to refund —</option>'
+    +opts.slice(0,80).map(function(o){return'<option value="'+o.v+'">'+_cpEsc(o.label)+'</option>';}).join('')+'</select>'
+    +'<div style="font-size:11px;color:#666;margin-top:4px">The money goes back to the same card through CardPointe. Same-day charges are voided; settled charges are refunded.</div>';
+};
+function cpRefundPick(){
+  var v=($$('ref-card-txn')||{}).value;if(!v)return;
+  var p=v.split('|');var s=sales[+p[0]];var t=_cpSaleTxns(s)[+p[1]];if(!t)return;
+  var left=_r2(t.amount-(t.reversed||0));
+  _refMax=left;
+  $$('ref-max-lbl').textContent='(max: '+C(left)+')';
+  var cur=parseFloat($$('ref-amt').value);
+  if(!cur||cur>left)$$('ref-amt').value=left.toFixed(2);
+  if(!$$('ref-item').value.trim())$$('ref-item').value=s.items;
+}
+var _baseProcessRefundCP=processRefund;
+processRefund=function(){
+  if(($$('ref-method')||{}).value!=='card')return _baseProcessRefundCP();
+  if(!_cpCanRefund()){sMsg('ref-msg','You need the "Void transactions" permission to refund card payments.','red');return;}
+  var v=($$('ref-card-txn')||{}).value;
+  if(!v){sMsg('ref-msg','Pick the original card sale to refund','red');return;}
+  var amt=_r2($$('ref-amt').value);
+  if(!(amt>0)){sMsg('ref-msg','Enter a refund amount','red');return;}
+  var p=v.split('|');var si=+p[0];var t=_cpSaleTxns(sales[si])[+p[1]];
+  var left=_r2(t.amount-(t.reversed||0));
+  if(amt>left+0.001){sMsg('ref-msg','The most you can return on this card is '+C(left),'red');return;}
+  var label=$$('ref-item').value.trim();
+  sMsg('ref-msg','Sending refund to CardPointe…','blue');
+  cpReverseTxnForSale(si,t,amt,label).then(function(r){
+    if(r.ok){closeOv('ov-refund');sMsg('sale-msg',(r.kind==='VOID'?'Card void ':'Card refund ')+C(amt)+' approved — '+t.account+(r.message?' · '+r.message:''),'green');}
+    else sMsg('ref-msg','Card refund failed: '+_cpEsc(r.message),'red');
+  });
+};
 </script>

@@ -67,6 +67,10 @@ async function getSession(req) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── CardPointe payments (card terminal, voids, refunds) → /api/cp/* ─────────
+// Must stay ABOVE the app.get('*') catch-all at the bottom of this file.
+require('./cardpointe')(app, pool);
+
 // ════════════════════════════════════════════════════════════════════
 // POS DATA ROUTES
 // ════════════════════════════════════════════════════════════════════
