@@ -637,7 +637,7 @@ tr.unpaid-row{background:#FFF0F0}
       </div>
     </div>
     <div id="inv-msg-top"></div>
-    <table style="table-layout:fixed"><thead><tr><th>Name</th><th style="width:75px">Price</th><th style="width:60px">Stock</th><th style="width:90px">Category</th><th style="width:75px">SKU</th><th style="width:80px"></th></tr></thead>
+    <table style="table-layout:fixed"><thead><tr><th>Name</th><th style="width:75px">Price</th><th style="width:60px">Stock</th><th style="width:90px">Category</th><th style="width:110px">SKU</th><th style="width:48px;text-align:center" title="Checked = sales tax is charged on this item. Uncheck items that are never taxed.">Tax</th><th style="width:80px"></th></tr></thead>
     <tbody id="inv-table"></tbody></table>
   </div>
 </div>
@@ -1122,6 +1122,7 @@ tr.unpaid-row{background:#FFF0F0}
   <div class="fg"><label>Product name</label><input id="inv-name"></div>
   <div class="fg fg3"><div><label>Price ($)</label><input type="number" id="inv-price" step="0.01"></div><div><label>Stock qty</label><input type="number" id="inv-stock" min="0"></div><div><label>SKU / Barcode</label><input id="inv-sku"></div></div>
   <div class="fg fg2" style="margin-bottom:9px"><div><label>Category</label><input id="inv-cat" placeholder="e.g. Balls, Apparel"></div><div><label>Low stock alert at</label><input type="number" id="inv-low" min="0" placeholder="5"></div></div>
+  <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="inv-taxable" checked style="width:auto;margin:0"> Taxable — charge sales tax on this item</label>
   <div style="display:flex;gap:7px"><button class="btn bg-green" onclick="saveProduct()">✓ Save</button><button class="btn" onclick="closeOv('ov-inv')">Cancel</button></div>
   <div id="inv-msg"></div>
 </div></div>
@@ -6437,6 +6438,27 @@ function _impFindHeaderRow(rows){
   return best;
 }
 function _impCell(row,k){var i=_invImp.map[k];return i>=0?row[i]:undefined;}
+// Rows that are course fees, memberships, gift cards, store credit or events — not inventory
+var INV_FEE_RX=/\b(green ?fees?|cart ?(fees?|lease|rentals?|rent)|trail ?fees?|walking|memberships?|member ?dues|dues|club ?credit|store ?credit|gift ?(cards?|certs?|certificates?)|prize ?fund|tournaments?|leagues?|events?|range ?(balls?|buckets?|tokens?)|punch ?cards?|school ?use|season ?pass(es)?|annual ?pass(es)?)\b/i;
+function _impNonInvReason(r){
+  var name=_impStr(_impCell(r,'name'));if(!name)return'';
+  var depts=_invImp.deptCols.map(function(i){return _impStr(r[i]).toLowerCase();});
+  if(depts.some(function(d){return d.indexOf('merchandise')>=0||d==='retail'||d==='pro shop';}))return'';
+  if(_impStr(_impCell(r,'sku')))return''; // has a barcode → a real product
+  var nl=name.toLowerCase();
+  if(courseFees.some(function(cf){return String(cf.name||'').toLowerCase()===nl;}))return'Course fee';
+  if(memTypes.some(function(t){return String(t.name||'').toLowerCase()===nl;}))return'Membership';
+  var m=INV_FEE_RX.exec(name+' | '+_impStr(_impCell(r,'cat'))+' | '+depts.join(' '));
+  if(!m)return'';
+  var w=m[0].toLowerCase();
+  if(/member|dues|pass/.test(w))return'Membership';
+  if(/gift/.test(w))return'Gift card';
+  if(/credit/.test(w))return'Store credit';
+  if(/event|tournament|league|prize/.test(w))return'Event / tournament';
+  return'Course fee';
+}
+function _invImpDetectFees(){_invImp.nonInv=_invImp.rows.map(_impNonInvReason);}
+function _invImpIsSkippedFee(i){return!!(_invImp.nonInv[i]&&!_invImp.include[i]);}
 
 // ---------- UI ----------
 function openInvImport(){
@@ -6462,22 +6484,27 @@ async function invImpLoad(file){
     var headers=(data.rows[hr]||[]).map(function(h,i){return _impStr(h)||('Column '+(i+1));});
     var body=data.rows.slice(hr+1).filter(function(r){return r&&r.some(function(c){return _impStr(c)!=='';});});
     if(!body.length)throw new Error('No data rows found under the header row.');
-    _invImp={file:file.name,sheet:data.sheetName,headers:headers,rows:body,map:_impGuessMap(headers),cats:{}};
+    _invImp={file:file.name,sheet:data.sheetName,headers:headers,rows:body,map:_impGuessMap(headers),cats:{},include:{},nonInv:[],
+      deptCols:headers.map(function(h,i){return/department/i.test(h)?i:-1;}).filter(function(i){return i>=0;})};
+    _invImpDetectFees();
     _invImpBuildCats();
     _invImpRender();
   }catch(e){console.error(e);sMsg('inv-imp-msg',_cpEsc(e.message||String(e)),'red');}
 }
 function _invImpBuildCats(){
   var old=_invImp.cats||{},cats={};
-  _invImp.rows.forEach(function(r){
+  _invImp.rows.forEach(function(r,i){
     if(!_impStr(_impCell(r,'name')))return;
+    if(_invImpIsSkippedFee(i))return;
     var c=_impStr(_impCell(r,'cat'))||'Other';
     if(!cats[c])cats[c]={count:0,on:old[c]?old[c].on:true};
     cats[c].count++;
   });
   _invImp.cats=cats;
 }
-function invImpSetMap(k,v){_invImp.map[k]=parseInt(v,10);if(k==='cat')_invImpBuildCats();_invImpRender();}
+function invImpSetMap(k,v){_invImp.map[k]=parseInt(v,10);_invImpDetectFees();_invImpBuildCats();_invImpRender();}
+function invImpFeeToggle(i,on){_invImp.include[i]=on;_invImpBuildCats();_invImpRender();}
+function invImpFeeAll(on){_invImp.nonInv.forEach(function(r,i){if(r)_invImp.include[i]=on;});_invImpBuildCats();_invImpRender();}
 function invImpCatToggle(c,on){if(_invImp.cats[c])_invImp.cats[c].on=on;_invImpRenderPreview();}
 function invImpCatAll(on){Object.keys(_invImp.cats).forEach(function(c){_invImp.cats[c].on=on;});_invImpRender();}
 function _invImpOpts(){
@@ -6490,6 +6517,7 @@ function _invImpOpts(){
 }
 function _invImpRender(){
   var I=_invImp;
+  var keep=$$('inv-imp-updprice')?_invImpOpts():null;
   var colOpts=function(sel){return'<option value="-1"'+(sel<0?' selected':'')+'>— not in file —</option>'+I.headers.map(function(h,i){return'<option value="'+i+'"'+(i===sel?' selected':'')+'>'+_cpEsc(h)+'</option>';}).join('');};
   var sample=function(k){var r=I.rows.find(function(x){return _impStr(_impCell(x,k))!=='';});return r?_cpEsc(_impStr(_impCell(r,k))).substring(0,40):'';};
   var mapRows=INV_IMP_FIELDS.map(function(f){
@@ -6517,12 +6545,32 @@ function _invImpRender(){
     +'<label style="font-size:12px;font-weight:400;display:block"><input type="checkbox" id="inv-imp-updcat" checked style="width:auto"> Update categories from the file</label>'
     +'<div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px">Low-stock alert for new items at <input type="number" id="inv-imp-low" value="0" min="0" style="width:60px;font-size:12px;padding:4px 6px"> <span style="color:#888">(0 = off)</span></div>'
     +'</div></div>'
-    +'<div class="sec-lbl" style="margin-top:10px">3. Categories to import <span style="font-weight:400;text-transform:none">— untick fees or anything you don\'t sell as a product</span> '
+    +(function(){
+      var list=[];I.nonInv.forEach(function(r,i){if(r)list.push(i);});
+      if(!list.length)return'';
+      var skipped=list.filter(function(i){return!I.include[i];}).length;
+      return'<div class="sec-lbl" style="margin-top:10px">3. Course fees &amp; memberships — not added to inventory</div>'
+        +'<div style="background:#FAEEDA;border-radius:8px;padding:8px 11px;font-size:12px;color:#633806;margin-bottom:6px">'
+        +'Found <strong>'+list.length+'</strong> rows that look like course fees, memberships, gift cards, store credit or events. '
+        +(skipped?'<strong>'+skipped+' will be skipped</strong>':'None will be skipped')+' — those belong on the Course Fees, Members, Gift Certs and Store Credit tabs. Tick any that really are products to sell.'
+        +'<details'+(I.feeOpen?' open':'')+' ontoggle="_invImp.feeOpen=this.open" style="margin-top:5px"><summary style="cursor:pointer;font-weight:600">Show the '+list.length+' rows</summary>'
+        +'<div style="margin:5px 0"><button class="btn btn-sm" onclick="invImpFeeAll(false)">Skip all</button> <button class="btn btn-sm" onclick="invImpFeeAll(true)">Import all anyway</button></div>'
+        +'<table style="table-layout:fixed;font-size:12px;background:#fff;border-radius:6px"><thead><tr><th style="width:80px">Import?</th><th>Name</th><th style="width:130px">Looks like</th><th style="width:70px">Price</th></tr></thead><tbody>'
+        +list.map(function(i){var r=I.rows[i];var pr=_impNum(_impCell(r,'price'));
+          return'<tr><td><input type="checkbox" style="width:auto;margin:0" '+(I.include[i]?'checked':'')+' onchange="invImpFeeToggle('+i+',this.checked)"></td>'
+            +'<td>'+_cpEsc(_impStr(_impCell(r,'name')))+'</td><td>'+I.nonInv[i]+'</td><td>'+(pr!=null?C(pr):'')+'</td></tr>';}).join('')
+        +'</tbody></table></details></div>';
+    })()
+    +'<div class="sec-lbl" style="margin-top:10px">'+(I.nonInv.some(Boolean)?'4':'3')+'. Categories to import <span style="font-weight:400;text-transform:none">— untick anything else you don\'t sell as a product</span> '
     +'<button class="btn btn-sm" onclick="invImpCatAll(true)">All</button> <button class="btn btn-sm" onclick="invImpCatAll(false)">None</button></div>'
     +'<div style="max-height:110px;overflow:auto;margin-bottom:8px">'+catHtml+'</div>'
-    +'<div class="sec-lbl">4. Preview</div><div id="inv-imp-preview"></div>'
+    +'<div class="sec-lbl">'+(I.nonInv.some(Boolean)?'5':'4')+'. Preview</div><div id="inv-imp-preview"></div>'
     +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn bg-green" id="inv-imp-go" onclick="invImpApply()" style="flex:1;padding:10px">Import</button><button class="btn" onclick="closeOv(\'ov-inv-import\')">Cancel</button></div>'
     +'<div id="inv-imp-msg"></div>';
+  if(keep){
+    var rb=document.querySelector('input[name="inv-imp-stock"][value="'+keep.stockMode+'"]');if(rb)rb.checked=true;
+    $$('inv-imp-updprice').checked=keep.updPrice;$$('inv-imp-updcat').checked=keep.updCat;$$('inv-imp-low').value=keep.low;
+  }
   _invImpRenderPreview();
 }
 // Plan the import (dry run) or apply it
@@ -6532,10 +6580,11 @@ function _invImpPlan(apply){
   var push=function(m,k,p){(m[k]=m[k]||[]).push(p);};
   var take=function(m,k){var l=m[k]||[];for(var i=0;i<l.length;i++)if(!usedId[l[i].id])return l[i];return null;};
   products.forEach(function(p){if(p.sku)push(bySku,String(p.sku).toLowerCase(),p);push(byName,p.name.toLowerCase(),p);});
-  var res={add:0,upd:0,skip:0,skipCat:0,dupSku:0,rows:[]};
-  I.rows.forEach(function(r){
+  var res={add:0,upd:0,skip:0,skipCat:0,skipFee:0,dupSku:0,rows:[]};
+  I.rows.forEach(function(r,ri){
     var name=_impStr(_impCell(r,'name'));
     if(!name){res.skip++;return;}
+    if(_invImpIsSkippedFee(ri)){res.skipFee++;return;}
     var cat=_impStr(_impCell(r,'cat'))||'Other';
     if(I.cats[cat]&&!I.cats[cat].on){res.skipCat++;return;}
     var sku=_impStr(_impCell(r,'sku')),skuL=sku.toLowerCase();
@@ -6581,6 +6630,7 @@ function _invImpRenderPreview(){
   if($$('inv-imp-go')){$$('inv-imp-go').disabled=!(res.add+res.upd);$$('inv-imp-go').textContent='Import '+(res.add+res.upd)+' items ('+res.add+' new, '+res.upd+' updated)';}
   el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
     +'<span class="badge b-green">'+res.add+' new</span><span class="badge b-blue">'+res.upd+' update existing</span>'
+    +(res.skipFee?'<span class="badge b-amber">'+res.skipFee+' skipped (course fees / memberships)</span>':'')
     +(res.skipCat?'<span class="badge b-gray">'+res.skipCat+' skipped (category unticked)</span>':'')
     +(res.skip?'<span class="badge b-gray">'+res.skip+' skipped (no name)</span>':'')
     +(res.dupSku?'<span class="badge b-amber" title="Two or more rows share the same barcode. Each still imports as its own item, but scanning that barcode finds only the first one.">'+res.dupSku+' shared barcodes ⚠</span>':'')
@@ -6629,6 +6679,48 @@ var _baseIsTaxableImp=isTaxable;
 isTaxable=function(item){
   if(item&&item.productId){var p=products.find(function(x){return x.id===item.productId;});if(p&&p.taxExempt)return false;}
   return _baseIsTaxableImp(item);
+};
+
+
+// ================================================================
+// INVENTORY — Tax column (checked = taxed; uncheck items never taxed)
+// ================================================================
+function _invCatNeverTaxed(p){return TAX_EXEMPT_CATS.indexOf(p.cat)>=0;}
+function invSetTax(id,on){
+  var p=products.find(function(x){return x.id===id;});if(!p)return;
+  if(on)delete p.taxExempt;else p.taxExempt=true;
+  saveState();
+}
+renderInv=function(){
+  var q=$$('inv-q').value.toLowerCase();var cat=$$('inv-cat-f').value;
+  var list=products.filter(function(p){return(!q||p.name.toLowerCase().indexOf(q)>=0||String(p.sku||'').toLowerCase().indexOf(q)>=0)&&(!cat||p.cat===cat);});
+  var tb=$$('inv-table');
+  if(!list.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:#888;padding:12px">No products found</td></tr>';return;}
+  tb.innerHTML=list.map(function(p){
+    var low=p.low>0&&p.stock<=p.low;
+    var never=_invCatNeverTaxed(p);
+    var taxCell=never
+      ?'<input type="checkbox" disabled style="width:auto;margin:0" title="The '+_cpEsc(p.cat)+' category is never taxed">'
+      :'<input type="checkbox" style="width:auto;margin:0;cursor:pointer" '+(p.taxExempt?'':'checked')+' onchange="invSetTax('+p.id+',this.checked)" title="'+(p.taxExempt?'Not taxed — tick to charge tax':'Taxed — untick if this item is never taxed')+'">';
+    return'<tr'+(p.taxExempt?' style="background:#fbfbf7"':'')+'><td style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+_cpEsc(p.name)+'">'+p.name+(low?' <span class="badge b-red" style="font-size:10px">Low</span>':'')+'</td>'
+      +'<td>'+C(p.price)+'</td><td>'+(p.stock>=999?'∞':p.stock)+'</td><td style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.cat+'</td>'
+      +'<td style="font-family:monospace;font-size:11px;overflow:hidden;text-overflow:ellipsis">'+(p.sku||'')+'</td>'
+      +'<td style="text-align:center">'+taxCell+'</td>'
+      +'<td><button class="btn bg-amber btn-sm" onclick="openInvModal('+p.id+')" style="margin-right:3px">✎</button><button class="btn bg-red btn-sm" onclick="delProduct('+p.id+')">✕</button></td></tr>';
+  }).join('');
+};
+var _baseOpenInvModalTax=openInvModal;
+openInvModal=function(id){
+  _baseOpenInvModalTax(id);
+  var p=id?products.find(function(x){return x.id===id;}):null;
+  if($$('inv-taxable'))$$('inv-taxable').checked=!(p&&p.taxExempt);
+};
+var _baseSaveProductTax=saveProduct;
+saveProduct=function(){
+  var editId=editInvId,before=products.length;
+  _baseSaveProductTax();
+  var p=editId?products.find(function(x){return x.id===editId;}):(products.length>before?products[products.length-1]:null);
+  if(p&&$$('inv-taxable')){if($$('inv-taxable').checked)delete p.taxExempt;else p.taxExempt=true;renderInv();saveState();}
 };
 
 </script>
