@@ -51,6 +51,18 @@ function formatTime(t) {
   const [h, m] = t.split(':').map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
+// Seasonal tee time rules (set in POS → Settings → Seasonal Tee Time Rules).
+// First rule whose month range covers the date wins; ranges like Nov–Feb wrap the year.
+function teeRuleFor(seasons, dateStr) {
+  const m = parseInt(String(dateStr).slice(5, 7), 10);
+  if (!Array.isArray(seasons) || !m) return null;
+  for (const r of seasons) {
+    const f = +r.from, t = +r.to;
+    if (!f || !t) continue;
+    if (f <= t ? (m >= f && m <= t) : (m >= f || m <= t)) return r;
+  }
+  return null;
+}
 async function getSession(req) {
   const token = (req.headers.authorization || '').replace('Bearer ','').trim();
   if (!token) return null;
@@ -209,6 +221,16 @@ app.get('/api/teetimes/:date', async (req, res) => {
         if (cfg.teeOpenHour !== undefined)  { openHour = cfg.teeOpenHour; openMin = 0; }
         if (cfg.teeCloseHour !== undefined) { closeHour = cfg.teeCloseHour; closeMin = 0; }
         if (cfg.teeInt) teeInterval = parseInt(cfg.teeInt) || 10;
+        const rule = teeRuleFor(cfg.teeSeasons, date);
+        if (rule && rule.closed) {
+          return res.json({ ok: true, slots: [], closed: true,
+            message: `Tee times aren't available on this date${rule.name ? ' (' + rule.name + ')' : ''}.` });
+        }
+        if (rule) {
+          if (rule.start) { const [h,m] = rule.start.split(':').map(Number); openHour = h; openMin = m || 0; }
+          if (rule.end)   { const [h,m] = rule.end.split(':').map(Number);   closeHour = h; closeMin = m || 0; }
+          if (+rule.int) teeInterval = +rule.int;
+        }
       } catch {}
     }
     // Load online bookings

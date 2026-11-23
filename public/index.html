@@ -472,7 +472,8 @@ tr.unpaid-row{background:#FFF0F0}
       <span><span style="display:inline-block;width:9px;height:9px;background:#EAF3DE;border:1px solid #639922;border-radius:2px"></span> Paid</span>
       <span>4 slots per time · click name=view · dbl-click=POS · 🔄 syncs every 30s</span>
     </div>
-    <div style="overflow-x:auto"><div id="tee-cal"></div></div>
+    <div style="overflow-x:auto"><div id="tee-season-note" style="display:none;border-radius:7px;padding:6px 11px;font-size:12px;margin-bottom:8px"></div>
+    <div id="tee-cal"></div></div>
   </div>
   <div class="card"><h3>Bookings List</h3><div id="tee-list"></div></div>
 </div>
@@ -902,6 +903,13 @@ tr.unpaid-row{background:#FFF0F0}
             <select id="s-currency" onchange="applyTax()"><option value="$">$ USD</option><option value="€">€ EUR</option><option value="£">£ GBP</option><option value="C$">C$ CAD</option></select>
           </div>
         </div>
+        <div style="font-size:11px;color:#888;margin-top:2px">These are the default hours, used on any date that no seasonal rule below covers.</div>
+        <hr class="div">
+        <h3>Seasonal Tee Time Rules</h3>
+        <div style="font-size:12px;color:#666;margin-bottom:8px">Set different first/last tee times by month — e.g. April–May 8:00–17:00, June–August 6:00–19:00. Each rule runs from the <strong>1st of the start month</strong> through the <strong>last day of the end month</strong>. A range like November–February wraps over the new year. If rules overlap, the <strong>highest one in the list wins</strong>. Tick <em>Closed</em> to show no tee times at all (online booking too).</div>
+        <div id="tee-season-list"></div>
+        <button class="btn bg-green btn-sm" onclick="teeSeasonAdd()" style="margin-top:6px">+ Add seasonal rule</button>
+        <div id="tee-season-today" style="font-size:12px;margin-top:8px;color:#27500A"></div>
         <hr class="div">
         <h3>Tee Sheet Columns</h3>
         <div id="tee-cols-list" style="margin-bottom:7px"></div>
@@ -6832,5 +6840,107 @@ function invExport(kind){
   }
   sMsg('inv-msg-top','Exported '+d.rows.length+' items to '+base+(kind==='csv'?'.csv':'.xlsx')+' (check your Downloads folder).','green');
 }
+
+
+// ================================================================
+// SEASONAL TEE TIME RULES — CFG.teeSeasons
+// [{name, from:1-12, to:1-12, start:'HH:MM', end:'HH:MM', int:minutes|0, closed:bool}]
+// First rule (top of list) whose month range covers the date wins;
+// otherwise the default First/Last tee time + interval apply.
+// The server applies the same rules for the online booking page.
+// ================================================================
+var TS_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function _tsList(){if(!Array.isArray(CFG.teeSeasons))CFG.teeSeasons=[];return CFG.teeSeasons;}
+function teeRuleFor(dateStr){
+  var m=parseInt(String(dateStr||todayStr()).slice(5,7),10);if(!m)return null;
+  var list=_tsList();
+  for(var i=0;i<list.length;i++){
+    var r=list[i],f=+r.from,t=+r.to;if(!f||!t)continue;
+    if(f<=t?(m>=f&&m<=t):(m>=f||m<=t))return r;
+  }
+  return null;
+}
+function teeHoursFor(dateStr){
+  var r=teeRuleFor(dateStr);
+  if(r&&r.closed)return{closed:true,rule:r};
+  return{start:(r&&r.start)||CFG.teeStart||'06:00',end:(r&&r.end)||CFG.teeEnd||'18:00',int:(r&&+r.int)||CFG.teeInt||8,rule:r,closed:false};
+}
+function teeTimesFor(dateStr){
+  var h=teeHoursFor(dateStr);if(h.closed)return[];
+  var a=h.start.split(':'),b=h.end.split(':'),cur=(+a[0])*60+(+a[1]||0),end=(+b[0])*60+(+b[1]||0),out=[];
+  if(!(h.int>0))h.int=8;
+  while(cur<=end&&out.length<300){var hh=Math.floor(cur/60),mm=cur%60;out.push((hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm);cur+=h.int;}
+  return out;
+}
+function _tsFmt(t){if(!t)return'';var p=t.split(':'),h=+p[0],m=p[1]||'00';return(h%12||12)+':'+m+(h>=12?' PM':' AM');}
+function _tsDescribe(dateStr){
+  var h=teeHoursFor(dateStr);
+  if(h.closed)return'Closed'+(h.rule&&h.rule.name?' — '+h.rule.name:'');
+  return _tsFmt(h.start)+' – '+_tsFmt(h.end)+', every '+h.int+' min'+(h.rule?' ('+(h.rule.name||'seasonal rule')+')':' (default hours)');
+}
+// Tee sheet + walk-in booking always use the hours for the date involved
+buildTimes=function(){TIMES=teeTimesFor(todayStr());};
+var _baseRenderTeeSeason=renderTee;
+renderTee=function(){
+  var date=($$('tee-date')&&$$('tee-date').value)||todayStr();
+  TIMES=teeTimesFor(date);
+  _baseRenderTeeSeason.apply(this,arguments);
+  var note=$$('tee-season-note');if(!note)return;
+  var h=teeHoursFor(date);
+  if(h.closed){note.style.display='';note.style.background='#FCEBEB';note.style.color='#791F1F';note.innerHTML='⛔ No tee times on this date — <strong>'+_cpEsc(h.rule.name||'closed season')+'</strong> ('+TS_MONTHS[h.rule.from-1]+' – '+TS_MONTHS[h.rule.to-1]+'). Change it in Settings → Seasonal Tee Time Rules.';}
+  else if(h.rule){note.style.display='';note.style.background='#E6F1FB';note.style.color='#0C447C';note.innerHTML='🗓 '+_cpEsc(h.rule.name||'Seasonal hours')+': '+_tsFmt(h.start)+' – '+_tsFmt(h.end)+', every '+h.int+' min';}
+  else note.style.display='none';
+};
+var _baseAutoBookSeason=_autoBookWalkIn;
+_autoBookWalkIn=function(){TIMES=teeTimesFor(todayStr());return _baseAutoBookSeason.apply(this,arguments);};
+
+// ---------- Settings UI ----------
+function renderTeeSeasons(infoOnly){
+  var el=$$('tee-season-list');if(!el)return;
+  var list=_tsList();
+  if(!infoOnly){
+  var mOpts=function(sel){return TS_MONTHS.map(function(n,i){return'<option value="'+(i+1)+'"'+((i+1)===+sel?' selected':'')+'>'+n+'</option>';}).join('');};
+  var iOpts=function(sel){return'<option value="0"'+(!+sel?' selected':'')+'>Default</option>'+[5,6,7,8,9,10,12,15,20].map(function(v){return'<option value="'+v+'"'+(v===+sel?' selected':'')+'>'+v+' min</option>';}).join('');};
+  if(!list.length){el.innerHTML='<div style="color:#888;font-size:12px;padding:6px 0">No seasonal rules — the default hours above apply all year.</div>';}
+  else el.innerHTML=list.map(function(r,i){
+      var dis=r.closed?' disabled':'';
+      var sel='font-size:12px;padding:4px 5px;width:auto';
+      return'<div style="border:1px solid '+(r.closed?'#E8B4B4':'#e0e0d8')+';background:'+(r.closed?'#FCEBEB':'#fafaf6')+';border-radius:8px;padding:8px 9px;margin-bottom:6px">'
+        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">'
+        +'<span style="font-size:11px;font-weight:700;color:#888;width:16px">'+(i+1)+'</span>'
+        +'<input value="'+_cpEsc(r.name||'')+'" placeholder="Rule name, e.g. Summer" onchange="teeSeasonSet('+i+',\'name\',this.value)" style="flex:1;font-size:12px;padding:5px 7px">'
+        +'<label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#791F1F;margin:0;cursor:pointer;white-space:nowrap"><input type="checkbox" style="width:auto;margin:0"'+(r.closed?' checked':'')+' onchange="teeSeasonSet('+i+',\'closed\',this.checked)"> Closed</label>'
+        +'<button class="btn btn-sm" style="padding:2px 6px" onclick="teeSeasonMove('+i+',-1)"'+(i===0?' disabled':'')+' title="Move up (higher priority)">▲</button>'
+        +'<button class="btn btn-sm" style="padding:2px 6px" onclick="teeSeasonMove('+i+',1)"'+(i===list.length-1?' disabled':'')+' title="Move down">▼</button>'
+        +'<button class="btn bg-red btn-sm" onclick="teeSeasonDel('+i+')" title="Delete rule">✕</button></div>'
+        +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#555;padding-left:22px">'
+        +'<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">From <select onchange="teeSeasonSet('+i+',\'from\',+this.value)" style="'+sel+'">'+mOpts(r.from)+'</select></span>'
+        +'<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">through <select onchange="teeSeasonSet('+i+',\'to\',+this.value)" style="'+sel+'">'+mOpts(r.to)+'</select></span>'
+        +(r.closed?'<span style="color:#791F1F;font-weight:600">— no tee times</span>'
+          :'<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">First <input type="time" value="'+(r.start||'')+'" onchange="teeSeasonSet('+i+',\'start\',this.value)" style="'+sel+'"'+dis+'></span>'
+          +'<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">Last <input type="time" value="'+(r.end||'')+'" onchange="teeSeasonSet('+i+',\'end\',this.value)" style="'+sel+'"'+dis+'></span>'
+          +'<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">Every <select onchange="teeSeasonSet('+i+',\'int\',+this.value)" style="'+sel+'"'+dis+'>'+iOpts(r.int)+'</select></span>')
+        +'</div></div>';
+    }).join('');
+  }
+  var warn=[];
+  list.forEach(function(r){if(!r.closed&&r.start&&r.end&&r.start>=r.end)warn.push((r.name||'A rule')+': last tee time must be after first tee time');});
+  var today=$$('tee-season-today');
+  if(today)today.innerHTML=(warn.length?'<div class="msg m-red" style="margin-bottom:4px">'+warn.map(_cpEsc).join('<br>')+'</div>':'')+'Today ('+new Date().toLocaleDateString()+'): <strong>'+_cpEsc(_tsDescribe(todayStr()))+'</strong>';
+}
+function _tsChanged(infoOnly){buildTimes();renderTeeSeasons(infoOnly);if($$('tee-date')&&$$('tee-date').value)renderTee();saveState();}
+function teeSeasonAdd(){
+  var m=new Date().getMonth()+1;
+  _tsList().push({name:'',from:m,to:m,start:CFG.teeStart||'07:00',end:CFG.teeEnd||'18:00',int:0,closed:false});
+  _tsChanged();
+}
+function teeSeasonSet(i,k,v){var r=_tsList()[i];if(!r)return;r[k]=v;_tsChanged(k!=='closed');} // only redraw the table when Closed changes
+function teeSeasonDel(i){var r=_tsList()[i];if(!r)return;if(!confirm('Delete the seasonal rule "'+(r.name||TS_MONTHS[r.from-1]+' – '+TS_MONTHS[r.to-1])+'"?'))return;_tsList().splice(i,1);_tsChanged();}
+function teeSeasonMove(i,d){var l=_tsList(),j=i+d;if(j<0||j>=l.length)return;var t=l[i];l[i]=l[j];l[j]=t;_tsChanged();}
+var _basePopulateSettingsSeason=populateSettingsFields;
+populateSettingsFields=function(){_basePopulateSettingsSeason.apply(this,arguments);renderTeeSeasons();};
+var _baseSaveSettingsSeason=saveSettings;
+saveSettings=function(){_baseSaveSettingsSeason.apply(this,arguments);buildTimes();renderTeeSeasons();if($$('tee-date')&&$$('tee-date').value)renderTee();};
+setTimeout(function(){renderTeeSeasons();buildTimes();},600);
 
 </script>
