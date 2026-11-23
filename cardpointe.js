@@ -351,7 +351,8 @@ module.exports = function mountCardPointe(app, pool) {
     if (!Number.isFinite(cents) || cents <= 0) return res.status(400).json({ ok: false, status: 'error', message: 'Invalid amount.' });
     if (cents > MAX_CENTS) return res.status(400).json({ ok: false, status: 'error', message: 'Amount is over the $10,000 safety limit.' });
     const orderid = newOrderId();
-    const base = { kind: 'sale', mode: c.mode, orderid, hsn, register: b.register, cashier: b.cashier, amount_cents: cents };
+    const keyed = b.keyed === true;   // phone order: cashier types the card number ON THE TERMINAL (authManual)
+    const base = { kind: keyed ? 'sale-keyed' : 'sale', mode: c.mode, orderid, hsn, register: b.register, cashier: b.cashier, amount_cents: cents };
 
     // ---- DEMO: simulated terminal. Amounts ending in .13 decline (to test the decline screen).
     if (c.mode === 'demo') {
@@ -372,7 +373,7 @@ module.exports = function mountCardPointe(app, pool) {
         const retref = String(Math.floor(1e11 + Math.random() * 9e11));
         const authcode = 'DEMO' + String(Math.floor(Math.random() * 99)).padStart(2, '0');
         await updateTx(id, { status: 'approved', retref, authcode, account: '****1111', resptext: 'Approval' });
-        return res.json({ ok: true, status: 'approved', orderid, mode: 'demo', retref, authcode, account: '****1111', amount: Number(dollars(cents)), resptext: 'Approval' });
+        return res.json({ ok: true, status: 'approved', orderid, mode: 'demo', retref, authcode, account: '****1111', amount: Number(dollars(cents)), resptext: 'Approval', entrymode: keyed ? 'Keyed' : 'EMV Contactless' });
       } finally { busy.delete(key); demoCancel.delete(key); }
     }
 
@@ -387,14 +388,19 @@ module.exports = function mountCardPointe(app, pool) {
       await termConnect(c, hsn);
       let r = null;
       try {
-        r = await http('POST', termBase(c) + 'v3/authCard', {
-          headers: termHeaders(c, hsn), timeoutMs: AUTH_TIMEOUT_MS,
-          body: {
-            merchantId: c.merchid, hsn, amount: String(cents), orderId: orderid,
-            capture: true, includeSignature: false, includeAmountDisplay: true, confirmAmount: true,
-            beep: true, clearDisplayDelay: 1500,
-          },
-        });
+        const authBody = {
+          merchantId: c.merchid, hsn, amount: String(cents), orderId: orderid,
+          capture: true, includeSignature: false, includeAmountDisplay: true, beep: true,
+        };
+        if (keyed) {
+          // Keyed entry: the terminal prompts for card number, expiry, CVV and billing ZIP
+          Object.assign(authBody, { includeAVS: true, includeCVV: true });
+          r = await http('POST', termBase(c) + 'v3/authManual', { headers: termHeaders(c, hsn), timeoutMs: AUTH_TIMEOUT_MS, body: authBody });
+          if (r.status === 404) r = await http('POST', termBase(c) + 'v2/authManual', { headers: termHeaders(c, hsn), timeoutMs: AUTH_TIMEOUT_MS, body: authBody });
+        } else {
+          Object.assign(authBody, { confirmAmount: true, clearDisplayDelay: 1500 });
+          r = await http('POST', termBase(c) + 'v3/authCard', { headers: termHeaders(c, hsn), timeoutMs: AUTH_TIMEOUT_MS, body: authBody });
+        }
       } catch (netErr) {
         console.warn(`[cardpointe] authCard no response for ${orderid}: ${netErr.message}`);
         r = null;
@@ -410,7 +416,8 @@ module.exports = function mountCardPointe(app, pool) {
         else if (j.errorCode === 1 || j.errorCode === 8) result = j.errorCode === 8
           ? { status: 'cancelled', message: 'Cancelled on the terminal.' }
           : await recoverByOrderId(c, orderid, cents);
-        else { const e = terminalError(r, 'authCard'); result = { status: e.status, message: e.message }; }
+        else if (keyed && (r.status === 404 || r.status === 405)) result = { status: 'error', message: 'Keyed card entry is not available on this terminal or merchant account. Ask CardPointe to enable manual entry (authManual) for your MID and terminal.' };
+        else { const e = terminalError(r, keyed ? 'keyed entry' : 'authCard'); result = { status: e.status, message: e.message }; }
       }
 
       // Partial approval (some prepaid/gift cards): never keep it — void and tell the cashier.
@@ -427,7 +434,7 @@ module.exports = function mountCardPointe(app, pool) {
         ok: result.status === 'approved', status: result.status, orderid, mode: c.mode,
         retref: result.retref || '', authcode: result.authcode || '', account: result.account || '',
         respcode: result.respcode || '', resptext: result.resptext || '', message: result.message || '',
-        amount: Number(dollars(cents)),
+        amount: Number(dollars(cents)), entrymode: result.entrymode || (keyed ? 'Keyed' : ''),
       };
     } catch (e) {
       await updateTx(id, { status: e.status || 'error', resptext: e.message });

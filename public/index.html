@@ -633,6 +633,7 @@ tr.unpaid-row{background:#FFF0F0}
         <button class="btn bg-green" onclick="openInvModal(null)">+ Add Product</button>
         <button class="btn bg-blue" onclick="openInvReceived()">📦 Inventory Received</button>
         <button class="btn" onclick="openInvImport()" style="border-color:#185FA5;color:#185FA5">📥 Import Excel / CSV</button>
+        <span style="display:inline-flex"><button class="btn" onclick="invExport('xlsx')" style="border-color:#3B6D11;color:#3B6D11;border-radius:8px 0 0 8px" title="Download the whole inventory list as an Excel file">📤 Export Excel</button><button class="btn" onclick="invExport('csv')" style="border-color:#3B6D11;color:#3B6D11;border-left:none;border-radius:0 8px 8px 0;padding-left:8px;padding-right:8px" title="Download as CSV instead">CSV</button></span>
         <button class="btn" id="inv-imp-undo" onclick="invImpUndo()" style="display:none;border-color:#A32D2D;color:#A32D2D">↶ Undo last import</button>
       </div>
     </div>
@@ -1261,6 +1262,7 @@ tr.unpaid-row{background:#FFF0F0}
       <button class="btn bg-green" onclick="cpStartCharge()" style="flex:1;padding:10px;font-size:14px">&#x1F4DF; Send to terminal</button>
       <button class="btn" onclick="cpCloseModal()">Cancel</button>
     </div>
+    <button class="btn" onclick="cpStartCharge(true)" style="width:100%;margin-top:7px;font-size:12px;border-style:dashed" title="For phone orders: you type the card number, expiry, CVV and billing ZIP on the terminal">&#x2328;&#xFE0F; Keyed / phone order — type the card into the terminal</button>
     <div id="cp-msg"></div>
   </div>
   <div id="cp-step-processing" style="display:none;text-align:center;padding:24px 0">
@@ -4354,15 +4356,18 @@ function _cpActions(list){
 }
 function _cpAct(i){var a=_cpActList[i];if(a)a.fn();}
 
-async function cpStartCharge(){
+async function cpStartCharge(keyed){
   if(!_cpFlow||_cpBusy)return;
+  keyed=keyed===true;
+  if(keyed&&!confirm('Keyed / phone order\n\nThe terminal will ask for the card number, expiration date, CVV (3–4 digits on the back) and the billing ZIP code. Read them from the caller and type them on the terminal.\n\nNever write the card number down.\n\nContinue?'))return;
+  _cpFlow.keyed=keyed;
   var ws=cpWorkstation();
   var total=_r2(_cpFlow.base+_cpFlow.tip);
   if((CP_CONFIG.mode==='test'||CP_CONFIG.mode==='live')&&!ws.hsn){sMsg('cp-msg','Assign this register a terminal first (Settings → CardPointe → Terminal HSN).','red');return;}
   _cpBusy=true;_cpStep('processing');
-  $$('cp-processing-msg').textContent=C(total)+' sent to the terminal';
-  $$('cp-processing-sub').textContent='Customer: tap, insert or swipe the card. Waiting for the result…';
-  var r=await cpApi('/terminal/charge','POST',{hsn:ws.hsn||'',register:ws.register||'',amount:total.toFixed(2),cashier:currentUser?currentUser.name:'',label:_cpFlow.label});
+  $$('cp-processing-msg').textContent=C(total)+' sent to the terminal'+(keyed?' (keyed)':'');
+  $$('cp-processing-sub').textContent=keyed?'Type the card number, expiration, CVV and billing ZIP on the terminal. Waiting for the result…':'Customer: tap, insert or swipe the card. Waiting for the result…';
+  var r=await cpApi('/terminal/charge','POST',{hsn:ws.hsn||'',register:ws.register||'',amount:total.toFixed(2),cashier:currentUser?currentUser.name:'',label:_cpFlow.label,keyed:keyed});
   _cpBusy=false;
   if(r.status==='approved'){_showApproved(r,total);return;}
   _cpDeclineOpts={status:r.status,orderid:r.orderid};
@@ -4378,13 +4383,13 @@ async function cpCancelTerminal(){
 }
 
 function _showApproved(r,total){
-  var res={retref:r.retref||'',authcode:r.authcode||'',account:r.account||'card',amountCharged:_r2(r.amount!=null?r.amount:total),orderid:r.orderid||'',mode:r.mode||CP_CONFIG.mode,standalone:!!r.standalone};
+  var res={retref:r.retref||'',authcode:r.authcode||'',account:r.account||'card',amountCharged:_r2(r.amount!=null?r.amount:total),orderid:r.orderid||'',mode:r.mode||CP_CONFIG.mode,standalone:!!r.standalone,keyed:!!(_cpFlow&&_cpFlow.keyed&&!r.standalone)};
   cpApproved=true;cpApprovedData=res;cpLastRetref=res.retref;
   _cpStep('result');
   var demoBadge=(res.mode==='demo'||res.mode==='demo-local')?' <span class="badge b-amber">DEMO</span>':'';
   $$('cp-result-box').innerHTML='<div style="font-size:36px;margin-bottom:8px">&#x2705;</div>'
     +'<div style="font-size:20px;font-weight:700;color:#27500A;margin-bottom:4px">Approved'+demoBadge+'</div>'
-    +'<div style="font-size:13px;color:#444;margin-bottom:10px"><strong>'+C(res.amountCharged)+'</strong> charged to '+_cpEsc(res.account)+'</div>'
+    +'<div style="font-size:13px;color:#444;margin-bottom:10px"><strong>'+C(res.amountCharged)+'</strong> charged to '+_cpEsc(res.account)+(res.keyed?' (keyed)':'')+'</div>'
     +'<div style="background:#EAF3DE;border-radius:8px;padding:9px;font-size:12px;text-align:left">'
     +'Auth code: <strong>'+_cpEsc(res.authcode||'N/A')+'</strong><br>Ref #: '+_cpEsc(res.retref||'N/A')+'</div>';
   var flow=_cpFlow;var finalizeOk=true;
@@ -4430,7 +4435,7 @@ function cpSimulateDemo(){
 // RECORDING SALES / REFUNDS
 // ------------------------------------------------------------
 function _cpTxnMeta(res){
-  return{retref:res.retref||'',authcode:res.authcode||'',account:res.account||'card',amount:_r2(res.amountCharged),orderid:res.orderid||'',mode:res.mode||'',standalone:!!res.standalone,reversed:0,ts:Date.now(),register:cpWorkstation().register||''};
+  return{retref:res.retref||'',authcode:res.authcode||'',account:res.account||'card',amount:_r2(res.amountCharged),orderid:res.orderid||'',mode:res.mode||'',standalone:!!res.standalone,keyed:!!res.keyed,reversed:0,ts:Date.now(),register:cpWorkstation().register||''};
 }
 function _cpFinalizeCartSale(res){
   var tip=_cpFlow?_cpFlow.tip:0;
@@ -4443,7 +4448,7 @@ function _cpFinalizeCartSale(res){
   try{completeSale();}finally{_cpInCardFinalize=false;if(chk)chk.checked=wasChk;}
   if(sales.length>before){
     var s=sales[sales.length-1];
-    s.method=res.standalone?'card (standalone terminal)':'card (CardPointe)';
+    s.method=res.standalone?'card (standalone terminal)':(res.keyed?'card (CardPointe, keyed)':'card (CardPointe)');
     s.retref=res.retref||'';s.tip=tip;s.cardTxns=[_cpTxnMeta(res)];
     _cpLastSaleIdx=sales.length-1;
     updateStats();renderSalesLog();saveState();
@@ -6267,7 +6272,7 @@ reprintReceipt=function(idx){
   if(!s){alert('Sale not found.');return;}
   var m=s.method||'';
   var tx=(s.cardTxns||[]).filter(function(t){return t.retref||t.authcode||t.standalone;});
-  if(tx.length)m+=' | '+tx.map(function(t){return t.account+(t.authcode?' Auth '+t.authcode:'')+(t.retref?' Ref '+t.retref:'');}).join(' | ');
+  if(tx.length)m+=' | '+tx.map(function(t){return t.account+(t.keyed?' (keyed)':'')+(t.authcode?' Auth '+t.authcode:'')+(t.retref?' Ref '+t.retref:'');}).join(' | ');
   printReceiptNow(s.items,m,s.total,s.taxAmt||0,0,'');
 };
 
@@ -6364,7 +6369,8 @@ function _xColIdx(ref){var m=/^([A-Z]+)/.exec(ref||'');if(!m)return -1;var n=0;f
 async function _xlsxRead(buf){
   var z=await _xlsxUnzip(buf),P=new DOMParser(),xml=function(s){return P.parseFromString(s,'application/xml');};
   var shared=[],ss=await z.get('xl/sharedStrings.xml');
-  if(ss)_xEls(xml(ss),'si').forEach(function(si){shared.push(_xEls(si,'t').map(function(t){return t.textContent;}).join(''));});
+  var unesc=function(t){return t.replace(/_x([0-9A-Fa-f]{4})_/g,function(m,h){return String.fromCharCode(parseInt(h,16));});};
+  if(ss)_xEls(xml(ss),'si').forEach(function(si){shared.push(unesc(_xEls(si,'t').map(function(t){return t.textContent;}).join('')));});
   var path='xl/worksheets/sheet1.xml',sheetName='Sheet1';
   var wbx=await z.get('xl/workbook.xml');
   if(wbx){
@@ -6414,7 +6420,7 @@ function _csvRead(text){
 
 // ---------- helpers ----------
 function _impNorm(s){return String(s==null?'':s).toLowerCase().replace(/[_\-]+/g,' ').replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();}
-function _impStr(v){if(v==null)return'';if(typeof v==='number')return Number.isInteger(v)?String(v):String(v);var s=String(v).trim();return s==='-'?'':s;}
+function _impStr(v){if(v==null)return'';if(typeof v==='number')return Number.isInteger(v)?String(v):String(v);var s=String(v).trim();if(s.charAt(0)==='='&&/^="?[^"]*"?$/.test(s))s=s.slice(1).replace(/^"|"$/g,'');s=s.replace(/_x000[dDaA]_/g,' ').replace(/\s+/g,' ').trim();return s==='-'?'':s;}
 function _impNum(v){if(v==null||v==='')return null;if(typeof v==='number')return v;var s=String(v).replace(/[$,\s]/g,'');if(s===''||s==='-')return null;var n=parseFloat(s);return isNaN(n)?null:n;}
 function _impTaxExempt(v){var s=_impStr(v).toLowerCase();if(!s)return undefined;if(/exempt|non.?tax|no.?tax|^none$|^n$|^no$|^false$|^0$/.test(s))return true;return false;}
 function _impGuessMap(headers){
@@ -6448,6 +6454,7 @@ function _impNonInvReason(r){
   var nl=name.toLowerCase();
   if(courseFees.some(function(cf){return String(cf.name||'').toLowerCase()===nl;}))return'Course fee';
   if(memTypes.some(function(t){return String(t.name||'').toLowerCase()===nl;}))return'Membership';
+  if((typeof tournaments!=='undefined'?tournaments:[]).some(function(t){var tn=String(t.name||'').toLowerCase().trim();return tn.length>=4&&(tn===nl||nl.indexOf(tn)>=0||(nl.length>=5&&tn.indexOf(nl)>=0));}))return'Tournament';
   var m=INV_FEE_RX.exec(name+' | '+_impStr(_impCell(r,'cat'))+' | '+depts.join(' '));
   if(!m)return'';
   var w=m[0].toLowerCase();
@@ -6551,8 +6558,8 @@ function _invImpRender(){
       var skipped=list.filter(function(i){return!I.include[i];}).length;
       return'<div class="sec-lbl" style="margin-top:10px">3. Course fees &amp; memberships — not added to inventory</div>'
         +'<div style="background:#FAEEDA;border-radius:8px;padding:8px 11px;font-size:12px;color:#633806;margin-bottom:6px">'
-        +'Found <strong>'+list.length+'</strong> rows that look like course fees, memberships, gift cards, store credit or events. '
-        +(skipped?'<strong>'+skipped+' will be skipped</strong>':'None will be skipped')+' — those belong on the Course Fees, Members, Gift Certs and Store Credit tabs. Tick any that really are products to sell.'
+        +'Found <strong>'+list.length+'</strong> rows that look like course fees, memberships, tournaments, gift cards, store credit or events. '
+        +(skipped?'<strong>'+skipped+' will be skipped</strong>':'None will be skipped')+' — those belong on the Course Fees, Members, Tournaments, Gift Certs and Store Credit tabs. Tick any that really are products to sell.'
         +'<details'+(I.feeOpen?' open':'')+' ontoggle="_invImp.feeOpen=this.open" style="margin-top:5px"><summary style="cursor:pointer;font-weight:600">Show the '+list.length+' rows</summary>'
         +'<div style="margin:5px 0"><button class="btn btn-sm" onclick="invImpFeeAll(false)">Skip all</button> <button class="btn btn-sm" onclick="invImpFeeAll(true)">Import all anyway</button></div>'
         +'<table style="table-layout:fixed;font-size:12px;background:#fff;border-radius:6px"><thead><tr><th style="width:80px">Import?</th><th>Name</th><th style="width:130px">Looks like</th><th style="width:70px">Price</th></tr></thead><tbody>'
@@ -6579,7 +6586,7 @@ function _invImpPlan(apply){
   var bySku={},byName={},usedSku={},usedId={};
   var push=function(m,k,p){(m[k]=m[k]||[]).push(p);};
   var take=function(m,k){var l=m[k]||[];for(var i=0;i<l.length;i++)if(!usedId[l[i].id])return l[i];return null;};
-  products.forEach(function(p){if(p.sku)push(bySku,String(p.sku).toLowerCase(),p);push(byName,p.name.toLowerCase(),p);});
+  products.forEach(function(p){if(p.sku)push(bySku,String(p.sku).toLowerCase(),p);push(byName,_impStr(p.name).toLowerCase(),p);});
   var res={add:0,upd:0,skip:0,skipCat:0,skipFee:0,dupSku:0,rows:[]};
   I.rows.forEach(function(r,ri){
     var name=_impStr(_impCell(r,'name'));
@@ -6589,10 +6596,11 @@ function _invImpPlan(apply){
     if(I.cats[cat]&&!I.cats[cat].on){res.skipCat++;return;}
     var sku=_impStr(_impCell(r,'sku')),skuL=sku.toLowerCase();
     var price=_impNum(_impCell(r,'price')),qty=_impNum(_impCell(r,'qty')),cost=_impNum(_impCell(r,'cost'));
+    if(qty==null&&/unlimited|∞/i.test(_impStr(_impCell(r,'qty'))))qty=999;
     var taxEx=I.map.tax>=0?_impTaxExempt(_impCell(r,'tax')):undefined;
     var p=null;
     if(skuL&&usedSku[skuL])res.dupSku++;
-    if(skuL){var bs=take(bySku,skuL);if(bs&&bs.name.toLowerCase()===name.toLowerCase())p=bs;else if(bs&&!usedSku[skuL])p=bs;}
+    if(skuL){var bs=take(bySku,skuL);if(bs&&_impStr(bs.name).toLowerCase()===name.toLowerCase())p=bs;else if(bs&&!usedSku[skuL])p=bs;}
     if(!p)p=take(byName,name.toLowerCase());
     var action=p?'update':'new';
     var before=p?{price:p.price,stock:p.stock}:null;
@@ -6609,6 +6617,7 @@ function _invImpPlan(apply){
         if(o.updPrice&&cost!=null)p.lastCost=cost;
         if(o.updCat&&I.map.cat>=0&&_impStr(_impCell(r,'cat')))p.cat=cat;
         if(!p.sku&&sku)p.sku=sku;
+        if(/_x000[dDaA]_|[\r\n]/.test(p.name))p.name=name;
         if(taxEx!==undefined)p.taxExempt=taxEx;
       }else{
         p={id:nextPid++,name:name,price:newPrice,stock:newStock,sku:sku,cat:cat,low:o.low,lastCost:cost||0};
@@ -6722,5 +6731,106 @@ saveProduct=function(){
   var p=editId?products.find(function(x){return x.id===editId;}):(products.length>before?products[products.length-1]:null);
   if(p&&$$('inv-taxable')){if($$('inv-taxable').checked)delete p.taxExempt;else p.taxExempt=true;renderInv();saveState();}
 };
+
+
+// ================================================================
+// INVENTORY EXPORT — .xlsx (built in the browser) or .csv
+// Columns match what the importer reads, so an export can be
+// edited in Excel and imported back.
+// ================================================================
+var _crcT=null;
+function _crc32(u8){
+  if(!_crcT){_crcT=new Uint32Array(256);for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;_crcT[n]=c>>>0;}}
+  var crc=0xFFFFFFFF;for(var i=0;i<u8.length;i++)crc=_crcT[(crc^u8[i])&0xFF]^(crc>>>8);return(crc^0xFFFFFFFF)>>>0;
+}
+function _zipStore(files){ // files: [{name, data:string}] → Blob (no compression)
+  var te=new TextEncoder(),parts=[],central=[],offset=0;
+  var d=new Date(),dt=((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1))&0xFFFF,dd=(((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF;
+  files.forEach(function(f){
+    var name=te.encode(f.name),data=te.encode(f.data),crc=_crc32(data);
+    var lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,dt,true);lh.setUint16(12,dd,true);lh.setUint32(14,crc,true);lh.setUint32(18,data.length,true);lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
+    parts.push(lh.buffer,name,data);
+    var ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
+    ch.setUint16(12,dt,true);ch.setUint16(14,dd,true);ch.setUint32(16,crc,true);ch.setUint32(20,data.length,true);ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true);ch.setUint32(42,offset,true);
+    central.push(ch.buffer,name);
+    offset+=30+name.length+data.length;
+  });
+  var csize=central.reduce(function(a,b){return a+(b.byteLength!==undefined?b.byteLength:b.length);},0);
+  var end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);end.setUint16(10,files.length,true);end.setUint32(12,csize,true);end.setUint32(16,offset,true);
+  return new Blob(parts.concat(central,[end.buffer]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function _xmlEsc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');}
+function _xlsxBuild(sheetName,cols,rows){
+  // cols: [{h, w, fmt:'text'|'money'|'int'}]; rows: arrays of values
+  var colL=function(i){var s='';i++;while(i>0){var m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26);}return s;};
+  var cell=function(v,ci,ri,style){
+    var ref=colL(ci)+ri;
+    if(v===null||v===undefined||v==='')return'';
+    if(typeof v==='number'&&isFinite(v))return'<c r="'+ref+'"'+(style?' s="'+style+'"':'')+'><v>'+v+'</v></c>';
+    return'<c r="'+ref+'" t="inlineStr"'+(style?' s="'+style+'"':'')+'><is><t xml:space="preserve">'+_xmlEsc(v)+'</t></is></c>';
+  };
+  var styleOf={text:0,money:2,int:3};
+  var sd='<row r="1">'+cols.map(function(c,i){return cell(c.h,i,1,1);}).join('')+'</row>';
+  rows.forEach(function(r,ri){sd+='<row r="'+(ri+2)+'">'+r.map(function(v,ci){return cell(v,ci,ri+2,typeof v==='number'?styleOf[cols[ci].fmt||'text']:0);}).join('')+'</row>';});
+  var last=colL(cols.length-1)+(rows.length+1);
+  var sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +'<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    +'<cols>'+cols.map(function(c,i){return'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+(c.w||14)+'" customWidth="1"/>';}).join('')+'</cols>'
+    +'<sheetData>'+sd+'</sheetData><autoFilter ref="A1:'+last+'"/></worksheet>';
+  var styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +'<numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts>'
+    +'<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+    +'<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF3DE"/></patternFill></fill></fills>'
+    +'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    +'<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    +'<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+    +'<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    +'<xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
+    +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  return _zipStore([
+    {name:'[Content_Types].xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+_xmlEsc(sheetName)+'" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">\''+_xmlEsc(sheetName)+'\'!$A$1:$'+last.replace(/\d+$/,'')+'$'+(rows.length+1)+'</definedName></definedNames></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'xl/worksheets/sheet1.xml',data:sheet},
+    {name:'xl/styles.xml',data:styles}
+  ]);
+}
+function _invExportData(){
+  var cols=[{h:'Item Name',w:44},{h:'Category',w:16},{h:'Retail Price',w:12,fmt:'money'},{h:'Quantity',w:10,fmt:'int'},{h:'Cost Per',w:11,fmt:'money'},{h:'Total Value',w:12,fmt:'money'},{h:'SKU',w:16},{h:'Taxable',w:9},{h:'Low Stock Alert',w:15,fmt:'int'}];
+  var list=products.slice().sort(function(a,b){return String(a.cat).localeCompare(String(b.cat))||String(a.name).localeCompare(String(b.name));});
+  var rows=list.map(function(p){
+    var unlimited=p.stock>=999,cost=p.lastCost||0;
+    var taxable=!(p.taxExempt||TAX_EXEMPT_CATS.indexOf(p.cat)>=0);
+    return[p.name,p.cat||'',Number(p.price)||0,unlimited?'Unlimited':(Number(p.stock)||0),cost||'',(!unlimited&&cost)?Math.round(cost*p.stock*100)/100:'',p.sku?String(p.sku):'',taxable?'Yes':'No',p.low||0];
+  });
+  return{cols:cols,rows:rows};
+}
+function _invDownload(blob,filename){
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1500);
+}
+function invExport(kind){
+  if(!products.length){sMsg('inv-msg-top','There are no inventory items to export yet.','red');return;}
+  var d=_invExportData(),stamp=new Date().toISOString().slice(0,10),base='Green_Hills_Inventory_'+stamp;
+  if(kind==='csv'){
+    var q=function(v){v=v==null?'':String(v);return/[",\n\r]/.test(v)||/^[=+\-@]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    // SKUs exported as ="0123" so Excel keeps leading zeros when the CSV is opened
+    var lines=[d.cols.map(function(c){return q(c.h);}).join(',')].concat(d.rows.map(function(r){return r.map(function(v,i){return i===6&&v?'="'+String(v).replace(/"/g,'')+'"':q(v);}).join(',');}));
+    _invDownload(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),base+'.csv');
+  }else{
+    _invDownload(_xlsxBuild('Inventory',d.cols,d.rows),base+'.xlsx');
+  }
+  sMsg('inv-msg-top','Exported '+d.rows.length+' items to '+base+(kind==='csv'?'.csv':'.xlsx')+' (check your Downloads folder).','green');
+}
 
 </script>
