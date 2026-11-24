@@ -18,6 +18,8 @@ async function initDB() {
     await pool.query(`CREATE TABLE IF NOT EXISTS pos_data (
       key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
     );`);
+    // Version number per key, so two registers can't silently overwrite each other
+    await pool.query('ALTER TABLE pos_data ADD COLUMN IF NOT EXISTS rev BIGINT NOT NULL DEFAULT 0');
     await pool.query(`CREATE TABLE IF NOT EXISTS golfer_accounts (
       id SERIAL PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE, pass_hash TEXT NOT NULL, phone TEXT DEFAULT '',
@@ -43,6 +45,21 @@ async function initDB() {
 initDB();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// Every write to pos_data bumps its version number (rev)
+const UPSERT_SQL = 'INSERT INTO pos_data(key,value,updated_at,rev) VALUES($1,$2,NOW(),1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW(), rev=pos_data.rev+1 RETURNING rev';
+// Read-modify-write pos_main atomically (used by online booking + cancel)
+async function updatePosMain(mutate) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query("SELECT value FROM pos_data WHERE key='pos_main' FOR UPDATE");
+    const data = r.rows.length ? JSON.parse(r.rows[0].value) : {};
+    mutate(data);
+    await client.query(UPSERT_SQL, ['pos_main', JSON.stringify(data)]);
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+  finally { client.release(); }
+}
 function hashPass(p) {
   return crypto.createHash('sha256').update(p + 'ghgc_salt_2026').digest('hex');
 }
@@ -88,20 +105,54 @@ require('./cardpointe')(app, pool);
 // ════════════════════════════════════════════════════════════════════
 app.get('/api/data', async (req, res) => {
   try {
-    const result = await pool.query('SELECT key, value FROM pos_data');
-    const data = {};
-    result.rows.forEach(r => { try { data[r.key] = JSON.parse(r.value); } catch { data[r.key] = r.value; } });
-    res.json({ ok: true, data });
+    const result = await pool.query('SELECT key, value, rev FROM pos_data');
+    const data = {}, revs = {};
+    result.rows.forEach(r => { revs[r.key] = Number(r.rev) || 0; try { data[r.key] = JSON.parse(r.value); } catch { data[r.key] = r.value; } });
+    res.json({ ok: true, data, revs });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-app.post('/api/data/:key', async (req, res) => {
+// Cheap check for other registers: current version of each key
+app.get('/api/revs', async (req, res) => {
   try {
-    await pool.query(
-      'INSERT INTO pos_data(key,value,updated_at)VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()',
-      [req.params.key, JSON.stringify(req.body.value)]
-    );
-    res.json({ ok: true });
+    const r = await pool.query('SELECT key, rev FROM pos_data');
+    const revs = {}; r.rows.forEach(x => { revs[x.key] = Number(x.rev) || 0; });
+    res.json({ ok: true, revs });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.get('/api/data/:key', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT value, rev FROM pos_data WHERE key=$1', [req.params.key]);
+    if (!r.rows.length) return res.json({ ok: true, rev: 0, value: null });
+    let value; try { value = JSON.parse(r.rows[0].value); } catch { value = r.rows[0].value; }
+    res.json({ ok: true, rev: Number(r.rows[0].rev) || 0, value });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+// Save. With { ifRev } the save only goes through if nobody else saved since that version;
+// otherwise it answers 409 with the current data so the register can merge and retry.
+app.post('/api/data/:key', async (req, res) => {
+  const key = req.params.key, json = JSON.stringify(req.body.value);
+  try {
+    if (req.body.ifRev === undefined || req.body.ifRev === null) {
+      const r = await pool.query(UPSERT_SQL, [key, json]);
+      return res.json({ ok: true, rev: Number(r.rows[0].rev) });
+    }
+    const ifRev = Number(req.body.ifRev);
+    const u = await pool.query('UPDATE pos_data SET value=$2, updated_at=NOW(), rev=rev+1 WHERE key=$1 AND rev=$3 RETURNING rev', [key, json, ifRev]);
+    if (u.rows.length) return res.json({ ok: true, rev: Number(u.rows[0].rev) });
+    let cur = await pool.query('SELECT value, rev FROM pos_data WHERE key=$1', [key]);
+    if (!cur.rows.length) {
+      // First save ever for this key
+      try {
+        await pool.query('INSERT INTO pos_data(key,value,updated_at,rev) VALUES($1,$2,NOW(),1)', [key, json]);
+        return res.json({ ok: true, rev: 1 });
+      } catch (e) {
+        if (e.code !== '23505') throw e; // someone else created it a split second earlier
+        cur = await pool.query('SELECT value, rev FROM pos_data WHERE key=$1', [key]);
+      }
+    }
+    let value = null; try { value = JSON.parse(cur.rows[0].value); } catch {}
+    res.status(409).json({ ok: false, conflict: true, rev: Number(cur.rows[0].rev) || 0, value });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -112,7 +163,7 @@ app.post('/api/data', async (req, res) => {
   try {
     await client.query('BEGIN');
     for (const [k, v] of Object.entries(entries))
-      await client.query('INSERT INTO pos_data(key,value,updated_at)VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()', [k, JSON.stringify(v)]);
+      await client.query(UPSERT_SQL, [k, JSON.stringify(v)]);
     await client.query('COMMIT');
     res.json({ ok: true });
   } catch (e) { await client.query('ROLLBACK'); res.status(500).json({ ok: false, error: e.message }); }
@@ -136,7 +187,7 @@ app.post('/api/import', async (req, res) => {
   try {
     await client.query('BEGIN');
     for (const [k, v] of Object.entries(data))
-      await client.query('INSERT INTO pos_data(key,value,updated_at)VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()', [k, JSON.stringify(v)]);
+      await client.query(UPSERT_SQL, [k, JSON.stringify(v)]);
     await client.query('COMMIT');
     res.json({ ok: true, imported: Object.keys(data).length });
   } catch (e) { await client.query('ROLLBACK'); res.status(500).json({ ok: false, error: e.message }); }
@@ -365,12 +416,8 @@ app.post('/api/bookings', async (req, res) => {
     const bookingId = bR.rows[0].id;
     const posKey = `${date}|${time}|#1 Tee`;
 
-    // Inject into POS tee sheet — use a targeted merge to avoid overwriting
-    // the entire pos_main blob (which would wipe any unsaved POS changes).
-    {
-      // Re-read the very latest pos_main from DB right before writing
-      const latestR = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
-      let latestData = latestR.rows.length ? JSON.parse(latestR.rows[0].value) : {};
+    // Inject into POS tee sheet — locked read-modify-write so it can't collide with a register saving
+    await updatePosMain(latestData => {
       latestData.bookings = latestData.bookings || {};
       latestData.bookings[posKey] = {
         name: fullName, extras: (extraNames||[]).filter(Boolean),
@@ -380,11 +427,7 @@ app.post('/api/bookings', async (req, res) => {
         memberId: null, email, phone: '', date, time, col: '#1 Tee',
         onlineBookingId: bookingId
       };
-      await pool.query(
-        'INSERT INTO pos_data(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=$2, updated_at=NOW()',
-        ['pos_main', JSON.stringify(latestData)]
-      );
-    }
+    });
     await pool.query('UPDATE online_bookings SET pos_key=$1 WHERE id=$2', [posKey, bookingId]);
 
     res.json({
@@ -422,19 +465,7 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
     if (!r.rows.length) return res.status(404).json({ ok: false, error: 'Booking not found' });
     const posKey = r.rows[0].pos_key;
     if (posKey) {
-      const pr = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
-      if (pr.rows.length) {
-        try {
-          // Re-read latest before writing to avoid overwriting POS changes
-          const latestCR = await pool.query('SELECT value FROM pos_data WHERE key=$1', ['pos_main']);
-          const pd = latestCR.rows.length ? JSON.parse(latestCR.rows[0].value) : {};
-          if (pd.bookings) delete pd.bookings[posKey];
-          await pool.query(
-            'INSERT INTO pos_data(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=$2, updated_at=NOW()',
-            ['pos_main', JSON.stringify(pd)]
-          );
-        } catch {}
-      }
+      try { await updatePosMain(pd => { if (pd.bookings) delete pd.bookings[posKey]; }); } catch {}
     }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }

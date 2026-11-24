@@ -3963,53 +3963,22 @@ function _applyState(s){
 // then debounces a DB save 800ms later so rapid changes don't spam the DB
 // IMPORTANT: merges remote bookings before saving so online bookings are never wiped
 function saveState(){
-  // Always save to localStorage as fast local cache
-  var state = _buildState();
-  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
-  // Debounce DB save
-  if(_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async function(){
-    var hasDB = await _checkDB();
-    if(!hasDB) return;
-    try{
-      // Fetch the latest DB version first, merge remote bookings in
-      // so we never overwrite online bookings with a stale local copy
-      var fetchR = await fetch('/api/data');
-      var fetchJ = await fetchR.json();
-      var mergedBookings = Object.assign({}, bookings);
-      if(fetchJ.ok && fetchJ.data && fetchJ.data.pos_main){
-        var remoteBookings = fetchJ.data.pos_main.bookings || {};
-        // Add any remote bookings (online bookings) not in local state
-        Object.entries(remoteBookings).forEach(function(e){
-          var k=e[0], b=e[1];
-          if(b.onlineBookingId && !mergedBookings[k]){
-            mergedBookings[k] = b;
-          }
-        });
-      }
-      var stateToSave = _buildState();
-      stateToSave.bookings = mergedBookings;
-      await fetch('/api/data/pos_main', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({value: stateToSave})
-      });
-      // Update local bookings to include merged ones
-      if(Object.keys(mergedBookings).length > Object.keys(bookings).length){
-        Object.assign(bookings, mergedBookings);
-        renderTee();
-      }
-    }catch(e){ console.warn('DB save failed, localStorage still has it:', e.message); }
-  }, 800);
+  // v39: saving goes through the multi-register sync (version-checked + merge). See MULTI-REGISTER SYNC.
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(_buildState())); }catch(e){}
+  if(typeof _syncSchedule==='function'){_syncSchedule('pos_main');_syncSchedule('pos_day');_syncSchedule('pos_rosters');}
 }
 
 // Load state — tries DB first, falls back to localStorage
 async function loadStateAsync(){
   var hasDB = await _checkDB();
+  var _pendingLocal = (typeof _syncReadPending==='function') ? _syncReadPending() : {};
   if(hasDB){
     try{
       var r = await fetch('/api/data');
       var json = await r.json();
+      if(json.ok && json.data && !json.data.pos_main && typeof _syncAfterLoad==='function'){
+        _syncAfterLoad(json, _pendingLocal); // brand-new database: start syncing from empty
+      }
       if(json.ok && json.data && json.data.pos_main){
         _applyState(json.data.pos_main);
         if(json.data.pos_day){
@@ -4027,6 +3996,7 @@ async function loadStateAsync(){
         }
         // Set initial booking count for sync tracking
         _lastBookingCount = Object.keys(bookings).length;
+        if(typeof _syncAfterLoad==='function') _syncAfterLoad(json, _pendingLocal);
         try{localStorage.setItem(STORE_KEY, JSON.stringify(json.data.pos_main));}catch(e){}
         console.log('✅ Loaded from database ('+_lastBookingCount+' bookings)');
         return true;
@@ -4045,23 +4015,9 @@ function loadStateLocal(){
   }catch(e){return false;}
 }
 
-// Override the day/roster saves to also hit the DB
-function saveDayState(){
-  var d={open:_dayOpen,sessionId:_currentSessionId,openedBy:_dayOpenedBy,openedAt:_dayOpenedAt,sessions:_daySessions};
-  try{localStorage.setItem('greenhills_day', JSON.stringify(d));}catch(e){}
-  _checkDB().then(function(hasDB){
-    if(!hasDB) return;
-    fetch('/api/data/pos_day',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:d})}).catch(function(){});
-  });
-}
-function saveRosterState(){
-  var ro={rosters:tournamentRosters,declines:_declineLog};
-  try{localStorage.setItem('greenhills_rosters', JSON.stringify(ro));}catch(e){}
-  _checkDB().then(function(hasDB){
-    if(!hasDB) return;
-    fetch('/api/data/pos_rosters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:ro})}).catch(function(){});
-  });
-}
+// Day / roster saves go through the multi-register sync (see MULTI-REGISTER SYNC)
+function saveDayState(){ if(typeof _syncSchedule==='function')_syncSchedule('pos_day'); }
+function saveRosterState(){ if(typeof _syncSchedule==='function')_syncSchedule('pos_rosters'); }
 
 // Manual export — downloads a JSON backup file
 function exportData(){
@@ -4115,7 +4071,7 @@ function importData(){
 }
 
 // Auto-save every 30 seconds as extra safety net
-setInterval(saveState, 30000);
+setInterval(function(){saveState();}, 30000);
 
 // Manual tee sheet sync button
 async function manualTeeRefresh(){
@@ -4180,7 +4136,7 @@ function startTeeRefresh(){
     }catch(e){}
   }, 30000);
 }
-setTimeout(startTeeRefresh, 5000);
+setTimeout(function(){startTeeRefresh();}, 5000);
 
 // DB status indicator — shows in top bar
 function _showDBStatus(connected){
@@ -6942,5 +6898,342 @@ populateSettingsFields=function(){_basePopulateSettingsSeason.apply(this,argumen
 var _baseSaveSettingsSeason=saveSettings;
 saveSettings=function(){_baseSaveSettingsSeason.apply(this,arguments);buildTimes();renderTeeSeasons();if($$('tee-date')&&$$('tee-date').value)renderTee();};
 setTimeout(function(){renderTeeSeasons();buildTimes();},600);
+
+
+// ================================================================
+// MULTI-REGISTER SYNC (v39)
+// Each saved blob (pos_main, pos_day, pos_rosters) has a version
+// number on the server. A register only saves on top of the version
+// it last saw; if another register saved in between, the server
+// answers 409 with its copy and we MERGE (base = last synced copy):
+//   • changed on one side only  → that side's change is kept
+//   • changed on both sides     → this register's change wins, except
+//     stock / store credit / gift-cert balance, where both changes add up,
+//     and history lists, which are combined
+//   • new records on both sides → both kept (IDs re-numbered if they clash)
+// Every 15 s each register checks for newer versions and pulls them.
+// ================================================================
+var _SYNC_ADDITIVE={stock:1,credit:1,balance:1};
+function _sjs(x){return JSON.stringify(x);}
+function _sEq(a,b){return _sjs(a)===_sjs(b);}
+function _sClone(x){return x===undefined?undefined:JSON.parse(JSON.stringify(x));}
+
+function _mergeObj(b,l,r){
+  b=b||{};l=l||{};r=r||{};
+  var out={},keys={};
+  [b,l,r].forEach(function(o){Object.keys(o).forEach(function(k){keys[k]=1;});});
+  Object.keys(keys).forEach(function(k){
+    var bv=b[k],lv=l[k],rv=r[k],v;
+    // Counts (stock, store credit, gift-cert balance) changed on BOTH registers: both changes count,
+    // even when they happen to be equal (two registers each selling one = two sold)
+    if(_SYNC_ADDITIVE[k]&&typeof lv==='number'&&typeof rv==='number'&&typeof bv==='number'&&lv!==bv&&rv!==bv){
+      v=(k==='stock'&&(lv>=999||rv>=999||bv>=999))?lv:Math.round((bv+(lv-bv)+(rv-bv))*100)/100;
+    }
+    else if(_sEq(lv,rv))v=lv;
+    else if(_sEq(lv,bv))v=rv;
+    else if(_sEq(rv,bv))v=lv;
+    else if(_SYNC_ADDITIVE[k]&&typeof lv==='number'&&typeof rv==='number'&&typeof bv==='number'){
+      v=(k==='stock'&&(lv>=999||rv>=999))?lv:Math.round((bv+(lv-bv)+(rv-bv))*100)/100;
+    }
+    else if(Array.isArray(lv)&&Array.isArray(rv))v=_unionArr(Array.isArray(bv)?bv:[],lv,rv);
+    else if(lv&&rv&&typeof lv==='object'&&typeof rv==='object')v=_mergeObj(bv&&typeof bv==='object'?bv:{},lv,rv);
+    else v=lv;
+    if(v!==undefined)out[k]=v;
+  });
+  return out;
+}
+// Lists of plain values/history entries: keep remote, drop what this register removed, add what it added
+function _unionArr(b,l,r){
+  var bs={},ls={},rs={};
+  b.forEach(function(x){bs[_sjs(x)]=1;});l.forEach(function(x){ls[_sjs(x)]=1;});r.forEach(function(x){rs[_sjs(x)]=1;});
+  var out=r.filter(function(x){var s=_sjs(x);return!(bs[s]&&!ls[s]);});
+  l.forEach(function(x){var s=_sjs(x);if(!bs[s]&&!rs[s])out.push(x);});
+  return out;
+}
+function _keyMap(arr,keyFn){
+  var m={},order=[],cnt={};
+  (arr||[]).forEach(function(x){var k=keyFn(x);cnt[k]=(cnt[k]||0)+1;if(cnt[k]>1)k=k+'#'+cnt[k];m[k]=x;order.push(k);});
+  return{m:m,order:order};
+}
+// 3-way merge of a list of records. Returns {list, collisions:[localItem,...]}
+function _mergeKeyed(b,l,r,keyFn,itemMerge){
+  var B=_keyMap(b,keyFn),L=_keyMap(l,keyFn),R=_keyMap(r,keyFn);
+  var out=[],collisions=[],done={};
+  var decide=function(k){
+    var bv=B.m[k],lv=L.m[k],rv=R.m[k];
+    if(lv===undefined&&rv===undefined)return undefined;
+    if(_sEq(lv,rv)){
+      if(bv&&lv&&typeof lv==='object'&&Object.keys(_SYNC_ADDITIVE).some(function(f){return typeof bv[f]==='number'&&typeof lv[f]==='number'&&lv[f]!==bv[f];}))
+        return(itemMerge||_mergeObj)(bv,lv,rv);
+      return lv;
+    }
+    if(bv!==undefined&&lv===undefined)return _sEq(rv,bv)?undefined:rv;   // deleted here; keep if edited elsewhere
+    if(bv!==undefined&&rv===undefined)return _sEq(lv,bv)?undefined:lv;   // deleted elsewhere; keep if edited here
+    if(bv===undefined){
+      if(lv===undefined)return rv;
+      if(rv===undefined)return lv;
+      collisions.push(lv);return rv;                                    // both created the same key
+    }
+    if(_sEq(lv,bv))return rv;
+    if(_sEq(rv,bv))return lv;
+    return(itemMerge||_mergeObj)(bv,lv,rv);
+  };
+  R.order.forEach(function(k){done[k]=1;var v=decide(k);if(v!==undefined)out.push(v);});
+  L.order.forEach(function(k){if(done[k])return;done[k]=1;var v=decide(k);if(v!==undefined)out.push(v);});
+  B.order.forEach(function(k){if(done[k])return;done[k]=1;var v=decide(k);if(v!==undefined)out.push(v);});
+  return{list:out,collisions:collisions};
+}
+function _mergeMap(b,l,r){ // objects keyed by id (bookings)
+  b=b||{};l=l||{};r=r||{};
+  var res=_mergeKeyed(Object.keys(b).map(function(k){return[k,b[k]];}),Object.keys(l).map(function(k){return[k,l[k]];}),Object.keys(r).map(function(k){return[k,r[k]];}),
+    function(e){return e[0];},function(be,le,re){return[le[0],_mergeObj(be[1],le[1],re[1])];});
+  var out={};res.list.forEach(function(e){out[e[0]]=e[1];});
+  return{map:out,collisions:res.collisions};
+}
+var _syncNotices=[];
+function lists_salesKey(x){var c=Object.assign({},x||{});delete c._syncLocal;return x&&x.ts?('s:'+x.ts+'|'+(x.cashier||'')+'|'+x.total):_sjs(c);}
+function _mergeMain(b,l,r){
+  b=b||{};l=l||{};r=r||{};
+  var out=_mergeObj({},{},{}); // start empty
+  var idKey=function(x){return'id:'+(x&&x.id);};
+  var lists={products:idKey,members:idKey,tournaments:idKey,courseFees:idKey,teeBlocks:idKey,timeclockEntries:idKey,
+    giftCerts:function(x){return'gc:'+(x&&x.code);},discounts:function(x){return'd:'+(x&&x.name);},
+    memTypes:function(x){return'mt:'+(x&&x.name);},addonTypes:function(x){return'at:'+(x&&x.name);},
+    users:function(x){return'u:'+(x&&x.username);},eodHistory:_sjs,
+    sales:lists_salesKey};
+  var reId={};
+  // Flag records created on this register (not in the last synced copy) so ID fixes only touch those
+  var flagNew=function(arr,barr,keyFn){var bs={};(barr||[]).forEach(function(x){bs[keyFn(x)]=1;});(arr||[]).forEach(function(x){if(x&&typeof x==='object'&&!bs[keyFn(x)])x._syncLocal=1;});};
+  l=_sClone(l);
+  flagNew(l.members,b.members,idKey);flagNew(l.sales,b.sales,lists_salesKey);
+  Object.keys(l.bookings||{}).forEach(function(k){if(!(b.bookings||{})[k]&&l.bookings[k]&&typeof l.bookings[k]==='object')l.bookings[k]._syncLocal=1;});
+  Object.keys(lists).forEach(function(k){
+    var res=_mergeKeyed(b[k],l[k],r[k],lists[k]);
+    var list=res.list;
+    if(res.collisions.length){
+      if(lists[k]===idKey){
+        // Both registers created a record with the same ID: give this register's one a new ID
+        var maxId=0;list.concat(l[k]||[]).forEach(function(x){if(+x.id>maxId)maxId=+x.id;});
+        res.collisions.forEach(function(item){var nu=_sClone(item);reId[k]=reId[k]||{};reId[k][item.id]=++maxId;nu.id=maxId;list.push(nu);});
+      }else res.collisions.forEach(function(item){list.push(item);});
+    }
+    out[k]=list;
+  });
+  if(out.sales&&out.sales.every(function(s){return s&&s.ts;}))out.sales.sort(function(a,c){return a.ts-c.ts;});
+  var bk=_mergeMap(b.bookings,l.bookings,r.bookings);
+  out.bookings=bk.map;
+  bk.collisions.forEach(function(e){_syncNotices.push('Another register booked '+String(e[0]).replace(/\|/g,' ')+' at the same moment as you. Their booking was kept; please re-book '+((e[1]&&e[1].name)||'your golfer')+' in another slot.');});
+  out.CFG=_mergeObj(b.CFG,l.CFG,r.CFG);
+  // Re-numbered members: fix references made on this register only
+  var mm=reId.members||{};
+  var fix=function(o,f){if(o&&o._syncLocal&&mm[o[f]]!==undefined)o[f]=mm[o[f]];};
+  if(Object.keys(mm).length){
+    (out.sales||[]).forEach(function(x){fix(x,'memberId');});
+    Object.keys(out.bookings).forEach(function(k){fix(out.bookings[k],'memberId');});
+    (out.members||[]).forEach(function(m){fix(m,'linkedSpouseId');fix(m,'isSpouseOf');});
+    (cart||[]).forEach(function(c){if(mm[c.memberId]!==undefined)c.memberId=mm[c.memberId];});
+  }
+  (out.sales||[]).forEach(function(x){if(x)delete x._syncLocal;});
+  (out.members||[]).forEach(function(x){if(x)delete x._syncLocal;});
+  Object.keys(out.bookings).forEach(function(k){if(out.bookings[k])delete out.bookings[k]._syncLocal;});
+  var pm=reId.products||{};
+  (cart||[]).forEach(function(c){if(pm[c.productId]!==undefined)c.productId=pm[c.productId];});
+  // ID counters: never hand out an ID that exists anywhere
+  var maxOf=function(arr){var m=0;(arr||[]).forEach(function(x){if(+x.id>m)m=+x.id;});return m;};
+  out.nextPid=Math.max(+l.nextPid||1,+r.nextPid||1,maxOf(out.products)+1);
+  out.nextMid=Math.max(+l.nextMid||1,+r.nextMid||1,maxOf(out.members)+1);
+  out.nextTid=Math.max(+l.nextTid||1,+r.nextTid||1,maxOf(out.tournaments)+1);
+  out.nextCfId=Math.max(+l.nextCfId||1,+r.nextCfId||1,maxOf(out.courseFees)+1);
+  out._nextTcId=Math.max(+l._nextTcId||1,+r._nextTcId||1,maxOf(out.timeclockEntries)+1);
+  return out;
+}
+
+// ---------------- channels ----------------
+function _mainBuild(){var s=_buildState();delete s.savedAt;return JSON.parse(JSON.stringify(s));}
+function _mainApply(st){
+  var admins=users.filter(function(u){return u.role==='admin';});
+  _applyState(st);
+  if(Array.isArray(st.users))users=admins.concat(st.users.filter(function(u){return!admins.find(function(a){return a.username===u.username;});}));
+  if(st.nextPid)nextPid=st.nextPid;if(st.nextMid)nextMid=st.nextMid;if(st.nextTid)nextTid=st.nextTid;if(st.nextCfId)nextCfId=st.nextCfId;if(st._nextTcId)_nextTcId=st._nextTcId;
+  try{localStorage.setItem(STORE_KEY,JSON.stringify(st));}catch(e){}
+  _syncRefreshUI();
+}
+function _dayBuild(){return JSON.parse(JSON.stringify({open:_dayOpen,sessionId:_currentSessionId,openedBy:_dayOpenedBy,openedAt:_dayOpenedAt,sessions:_daySessions}));}
+function _dayApply(d){
+  if(d.open!==undefined)_dayOpen=d.open;_currentSessionId=d.sessionId||'';_dayOpenedBy=d.openedBy||'';_dayOpenedAt=d.openedAt||'';_daySessions=d.sessions||[];
+  try{localStorage.setItem('greenhills_day',JSON.stringify(d));}catch(e){}
+  try{updateDayBtns();}catch(e){}
+}
+function _dayMerge(b,l,r){
+  var m=_mergeObj(b,l,r);
+  m.sessions=_mergeKeyed((b||{}).sessions,(l||{}).sessions,(r||{}).sessions,function(x){return'ss:'+(x&&x.sessionId);}).list;
+  return m;
+}
+function _rosterBuild(){return JSON.parse(JSON.stringify({rosters:tournamentRosters,declines:_declineLog}));}
+function _rosterApply(d){
+  if(d.rosters)tournamentRosters=d.rosters;if(d.declines)_declineLog=d.declines;
+  try{localStorage.setItem('greenhills_rosters',JSON.stringify(d));}catch(e){}
+  try{if(typeof renderTournTable==='function')renderTournTable();}catch(e){}
+}
+function _rosterMerge(b,l,r){
+  b=b||{};l=l||{};r=r||{};
+  return{rosters:_mergeObj(b.rosters,l.rosters,r.rosters),declines:_unionArr(b.declines||[],l.declines||[],r.declines||[])};
+}
+var _SYNC={
+  pos_main:{key:'pos_main',build:_mainBuild,apply:_mainApply,merge:_mergeMain,rev:null,base:undefined,baseStr:null,busy:false,again:false},
+  pos_day:{key:'pos_day',build:_dayBuild,apply:_dayApply,merge:_dayMerge,rev:null,base:undefined,baseStr:null,busy:false,again:false},
+  pos_rosters:{key:'pos_rosters',build:_rosterBuild,apply:_rosterApply,merge:_rosterMerge,rev:null,base:undefined,baseStr:null,busy:false,again:false}
+};
+function _syncSetBase(ch,obj,rev){
+  ch.base=_sClone(obj);ch.baseStr=_sjs(obj);if(rev!==undefined)ch.rev=rev;
+  try{localStorage.setItem('gh_sync_base_'+ch.key,ch.baseStr);localStorage.setItem('gh_sync_rev_'+ch.key,String(ch.rev));}catch(e){}
+  if(!_syncDirty(ch)){try{localStorage.removeItem('gh_sync_dirty_'+ch.key);}catch(e){}}
+}
+function _syncDirty(ch){return ch.baseStr===null||_sjs(ch.build())!==ch.baseStr;}
+
+async function _syncPush(ch){
+  if(ch.baseStr===null)return; // not loaded from the server yet
+  if(!(await _checkDB()))return;
+  if(ch.busy){ch.again=true;return;}
+  ch.busy=true;
+  try{
+    for(var attempt=0;attempt<6;attempt++){
+      var local=ch.build(),localStr=_sjs(local);
+      if(localStr===ch.baseStr)break;
+      var r,j;
+      try{
+        r=await fetch('/api/data/'+ch.key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:local,ifRev:ch.rev==null?-1:ch.rev})});
+        j=await r.json();
+      }catch(e){_syncStatus('offline');break;}
+      if(r.ok&&j.ok){_syncSetBase(ch,local,j.rev);_syncStatus('ok');break;}
+      if(r.status===409&&j.conflict){
+        // Someone else saved first. Merge against what this register has RIGHT NOW (not the snapshot).
+        var remote=j.value||{};if(ch.key==='pos_main')delete remote.savedAt;
+        var merged=ch.merge(ch.base||{},ch.build(),remote);
+        _syncSetBase(ch,remote,j.rev);
+        ch.apply(merged);
+        _syncStatus('merged');
+        continue;
+      }
+      _syncStatus('error');break;
+    }
+  }finally{
+    ch.busy=false;
+    if(_syncNotices.length){var n=_syncNotices.splice(0);setTimeout(function(){alert('⚠ '+n.join('\n\n'));},50);}
+    if(ch.again){ch.again=false;setTimeout(function(){_syncPush(ch);},300);}
+  }
+}
+async function _syncPull(ch,remoteRev){
+  if(ch.busy)return;
+  if(remoteRev!==undefined&&remoteRev===ch.rev)return;
+  if(_syncDirty(ch)&&ch.baseStr!==null){return _syncPush(ch);} // push merges for us
+  ch.busy=true;
+  try{
+    var r=await fetch('/api/data/'+ch.key),j=await r.json();
+    if(!j.ok||j.value==null)return;
+    var val=j.value;if(ch.key==='pos_main')delete val.savedAt;
+    if(_syncDirty(ch)&&ch.baseStr!==null){ // user changed something while we were fetching → merge
+      var merged=ch.merge(ch.base||{},ch.build(),val);_syncSetBase(ch,val,j.rev);ch.apply(merged);ch.again=true;
+    }else{
+      var changed=_sjs(val)!==ch.baseStr;
+      _syncSetBase(ch,val,j.rev);
+      if(changed){ch.apply(_sClone(val));_syncStatus('pulled');}
+    }
+  }catch(e){}
+  finally{ch.busy=false;if(ch.again){ch.again=false;setTimeout(function(){_syncPush(ch);},300);}}
+}
+async function _syncTick(){
+  if(!(await _checkDB()))return;
+  if(!currentUser)return;
+  var revs={};
+  try{var r=await fetch('/api/revs');var j=await r.json();if(j.ok)revs=j.revs||{};}catch(e){_syncStatus('offline');return;}
+  for(var k in _SYNC){
+    var ch=_SYNC[k];
+    if(_syncDirty(ch)&&ch.baseStr!==null)await _syncPush(ch);
+    else if(revs[k]!==undefined&&revs[k]!==ch.rev)await _syncPull(ch,revs[k]);
+  }
+}
+function _syncSchedule(key){
+  var ch=_SYNC[key];if(!ch)return;
+  if(ch.baseStr!==null&&_syncDirty(ch)){try{localStorage.setItem('gh_sync_dirty_'+key,'1');}catch(e){}}
+  if(ch._t)clearTimeout(ch._t);
+  ch._t=setTimeout(function(){_syncPush(ch);},800);
+}
+// Re-draw everything that shows synced data, without disturbing what the cashier is doing
+function _syncRefreshUI(){
+  var keepMem=$$('pos-member-sel')?$$('pos-member-sel').value:null;
+  var tasks=[buildTimes,buildPosCats,renderProducts,renderSalesLog,buildPosMemberSelect,
+    buildInvCatFilter,renderInv,renderCrAll,renderGCTable,renderCourseFees,renderTournaments,renderTournTable,renderPosCourseFees,renderPosTournaments,
+    renderPosAddonTiles,renderTeeBlocksList,buildMemTypeFilter,renderMembers,renderTee,updateStats,updateDrawer,renderUsers,
+    function(){var t=$$('tab-settings');if(t&&t.classList.contains('on'))return;[renderTeeCols,renderDiscounts,renderMemTypesList,renderAddonTypesList,populateSettingsFields].forEach(function(f){try{f();}catch(e){}});if(typeof renderTeeSeasons==='function')renderTeeSeasons();},
+    function(){$$('course-name').textContent=CFG.courseName||'Green Hills Golf Club';},
+    calcCart];
+  tasks.forEach(function(f){try{if(typeof f==='function')f();}catch(e){console.warn('sync refresh',e);}});
+  if(keepMem!==null&&$$('pos-member-sel'))$$('pos-member-sel').value=keepMem;
+}
+function _syncStatus(s){
+  var el=$$('db-status');if(!el)return;
+  if(s==='offline'){el.textContent='🟡 Offline';el.title='Can\'t reach the server — changes are kept on this computer and will sync when it\'s back';return;}
+  if(s==='error'){el.textContent='🟠 DB';el.title='Last save failed — will retry';return;}
+  el.textContent='🟢 DB';
+  el.title=s==='merged'?'Synced — merged changes from another register':s==='pulled'?'Updated with changes from another register':'Saved & in sync with other registers';
+  if(s==='merged'||s==='pulled'){el.style.transition='background .3s';el.style.background='#D7ECFA';setTimeout(function(){el.style.background='';},1200);}
+}
+
+// ---------------- hook into the existing save/load code ----------------
+saveState=function(){
+  try{localStorage.setItem(STORE_KEY,JSON.stringify(_buildState()));}catch(e){}
+  _syncSchedule('pos_main');_syncSchedule('pos_day');_syncSchedule('pos_rosters');
+};
+saveDayState=function(){try{localStorage.setItem('greenhills_day',JSON.stringify(_dayBuild()));}catch(e){}_syncSchedule('pos_day');};
+saveRosterState=function(){try{localStorage.setItem('greenhills_rosters',JSON.stringify(_rosterBuild()));}catch(e){}_syncSchedule('pos_rosters');};
+// Old 30-second tee-sheet poller + Sync button → the new sync
+startTeeRefresh=function(){if(window._syncTimer)return;window._syncTimer=setInterval(_syncTick,15000);};
+manualTeeRefresh=async function(){
+  var btn=document.querySelector('[onclick="manualTeeRefresh()"]');
+  if(btn){btn.textContent='⏳ Syncing...';btn.disabled=true;}
+  var before=Object.keys(bookings).length;
+  await _syncTick();
+  var notice=document.getElementById('tee-refresh-notice');
+  if(notice){notice.textContent=Object.keys(bookings).length!==before?'✅ Tee sheet updated':'✅ Tee sheet is up to date';notice.style.display='flex';setTimeout(function(){notice.style.display='none';notice.textContent='🔔 New online booking received — tee sheet updated';},3000);}
+  if(btn){btn.textContent='🔄 Sync';btn.disabled=false;}
+};
+// Show settings fresh when the Settings tab is opened (a pull skips it while you're on that tab)
+var _baseShowTabSync=showTab;
+showTab=function(id){var r=_baseShowTabSync.apply(this,arguments);if(id==='settings'){try{populateSettingsFields();}catch(e){}}return r;};
+// Push right away when the page is being closed
+window.addEventListener('pagehide',function(){
+  for(var k in _SYNC){var ch=_SYNC[k];if(ch.baseStr!==null&&_syncDirty(ch)){try{navigator.sendBeacon('/api/data/'+k,new Blob([JSON.stringify({value:ch.build(),ifRev:ch.rev==null?-1:ch.rev})],{type:'application/json'}));}catch(e){}}}
+});
+
+// ---------------- startup: pick up versions + any changes that never reached the server ----------------
+var _SYNC_LOCAL_KEYS={pos_main:'greenhills_pos_v6',pos_day:'greenhills_day',pos_rosters:'greenhills_rosters'};
+function _syncReadPending(){
+  var out={};
+  Object.keys(_SYNC_LOCAL_KEYS).forEach(function(k){
+    try{
+      if(!localStorage.getItem('gh_sync_dirty_'+k))return;
+      var base=JSON.parse(localStorage.getItem('gh_sync_base_'+k)||'null');
+      var local=JSON.parse(localStorage.getItem(_SYNC_LOCAL_KEYS[k])||'null');
+      if(base&&local){if(k==='pos_main')delete local.savedAt;out[k]={base:base,local:local};}
+    }catch(e){}
+  });
+  return out;
+}
+function _syncAfterLoad(json,pending){
+  var data=json.data||{},revs=json.revs||{};
+  Object.keys(_SYNC).forEach(function(k){
+    var ch=_SYNC[k];
+    var remote=data[k];
+    if(remote===undefined||remote===null){_syncSetBase(ch,ch.build(),0);return;} // nothing on the server yet: current state is the starting point
+    remote=_sClone(remote);if(k==='pos_main')delete remote.savedAt;
+    _syncSetBase(ch,remote,revs[k]||0);
+    var p=pending&&pending[k];
+    if(p){
+      // This computer had changes that never reached the server (closed too fast / went offline): merge them back in
+      try{var merged=ch.merge(p.base,p.local,remote);ch.apply(merged);_syncSchedule(k);}catch(e){console.warn('pending merge failed',e);}
+    }
+  });
+}
 
 </script>
